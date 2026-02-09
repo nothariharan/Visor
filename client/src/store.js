@@ -158,16 +158,17 @@ const useStore = create((set, get) => ({
             return;
         }
 
-        const deps = adjacency[nodeId] || { imports: [], importedBy: [] };
-        const connectedNodeIds = new Set([...deps.imports, ...deps.importedBy, nodeId]);
-        const connectedEdgeIds = new Set();
-
-        // Find relevant edges
+        // Find relevant edges (excluding hierarchy/structure edges)
         edges.forEach(edge => {
+            if (edge.id.startsWith('hierarchy-')) return; // Ignore folder-child structure
+
             if (edge.source === nodeId || edge.target === nodeId) {
                 connectedEdgeIds.add(edge.id);
+                connectedNodeIds.add(edge.source);
+                connectedNodeIds.add(edge.target);
             }
         });
+
 
         set({
             edges: edges.map(edge => ({
