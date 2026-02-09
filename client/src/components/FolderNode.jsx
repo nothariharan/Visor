@@ -18,7 +18,7 @@ const FolderNode = ({ id, data, isConnectable }) => {
             onClick={handleClick}
             className={`px-4 py-2 shadow-md rounded-md bg-slate-700 border-2 border-slate-600 hover:border-blue-400 cursor-pointer min-w-[150px] transition-colors`}
         >
-            <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-slate-500" />
+            <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500" />
 
             <div className="flex items-center">
                 <div className="mr-2 text-yellow-500">
@@ -32,9 +32,10 @@ const FolderNode = ({ id, data, isConnectable }) => {
                 </div>
             </div>
 
-            <Handle type="source" position={Position.Bottom} isConnectable={isConnectable} className="!bg-slate-500" />
+            <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />
         </div>
     );
+
 };
 
 export default memo(FolderNode);

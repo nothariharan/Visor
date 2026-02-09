@@ -1,5 +1,7 @@
 const simpleGit = require('simple-git');
 const fs = require('fs-extra');
+const path = require('path');
+
 
 async function getGitMetadata(filePath) {
     try {

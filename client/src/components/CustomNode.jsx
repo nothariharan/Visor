@@ -30,7 +30,7 @@ const CustomNode = ({ id, data, isConnectable }) => {
 
     return (
         <div className={`px-4 py-2 shadow-md rounded-md bg-slate-800 border-2 ${borderColor} ${glow} min-w-[180px]`}>
-            <Handle type="target" position={Position.Top} isConnectable={isConnectable} className="!bg-slate-500" />
+            <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500" />
 
             <div className="flex items-center">
                 <div className="mr-2 relative">
@@ -66,9 +66,10 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 </div>
             </div>
 
-            <Handle type="source" position={Position.Bottom} isConnectable={isConnectable} className="!bg-slate-500" />
+            <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />
         </div>
     );
+
 };
 
 export default memo(CustomNode);

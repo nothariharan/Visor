@@ -72,44 +72,98 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             }
         }));
 
-        // Run dependency-cruiser on visible files
-        // We need to know edges between visible files.
-        if (filesToScan.length > 0) {
-            try {
-                const { cruise } = await import("dependency-cruiser");
-                const cruiseResult = await cruise(
-                    filesToScan,
+        // Run dependency-cruiser on the entire project to find architectural links
+        // We scan everything (up to limits) and aggregate dependencies to visible nodes.
+        let cruiseModules = [];
+        try {
+            const { cruise } = await import("dependency-cruiser");
+            // Scan rootDir recursively, respecting ignore patterns
+            const cruiseResult = await cruise(
+                [rootDir],
+                {
+                    exclude: `(${ignorePatterns.join('|')}|node_modules|dist|build|coverage)`,
+                    maxDepth: 4, // Limit depth for performance, usually enough for architecture
+                    outputType: "json",
+                    // TypeScript/JSX support is automatic if extensions are present
+                }
+            );
+            if (cruiseResult.output && cruiseResult.output.modules) {
+                cruiseModules = cruiseResult.output.modules;
+            }
+        } catch (e) {
+            console.warn("Dependency parsing failure:", e);
+        }
 
-                    {
-                        // Only include files in our list to avoid traversing the world
-                        // This regex matches exactly the files in filesToScan
-                        // Escaping for regex is important
-                        includeOnly: filesToScan.map(p => `^${p.replace(/\\/g, '\\\\')}$`).join('|'),
-                        maxDepth: 1, // Only direct dependencies
-                        outputType: "json"
-                    }
-                );
+        // Helper to find the visible node that 'contains' a file path
+        // Sort visible nodes by path length descending to match deepest folder first
+        const sortedNodes = [...nodes].sort((a, b) => b.id.length - a.id.length);
 
-                if (cruiseResult.output && cruiseResult.output.modules) {
-                    cruiseResult.output.modules.forEach(mod => {
-                        if (mod.dependencies) {
-                            mod.dependencies.forEach(dep => {
-                                // Only add edge if target is also visible
-                                if (visibleItems.has(dep.resolved)) {
-                                    edges.push({
-                                        id: `${mod.source}-${dep.resolved}`,
-                                        source: mod.source,
-                                        target: dep.resolved
-                                    });
-                                }
+        const findVisibleNode = (filePath) => {
+            // Normalize path separators
+            const normalizedFile = path.resolve(filePath);
+            for (const node of sortedNodes) {
+                // If node is a file, exact match
+                if (node.type === 'custom' && node.id === normalizedFile) return node;
+                // If node is a folder, prefix match
+                if (node.type === 'folder' && normalizedFile.startsWith(node.id)) return node;
+            }
+            return null;
+        };
+
+        // Aggregate Edges
+        const edgeSet = new Set();
+        cruiseModules.forEach(mod => {
+            const sourceNode = findVisibleNode(mod.source);
+            if (!sourceNode) return;
+
+            if (mod.dependencies) {
+                mod.dependencies.forEach(dep => {
+                    const targetNode = findVisibleNode(dep.resolved);
+                    if (!targetNode) return;
+
+                    // Create edge if nodes are different
+                    if (sourceNode.id !== targetNode.id) {
+                        const edgeId = `${sourceNode.id}-${targetNode.id}`;
+                        if (!edgeSet.has(edgeId)) {
+                            edgeSet.add(edgeId);
+                            edges.push({
+                                id: edgeId,
+                                source: sourceNode.id,
+                                target: targetNode.id
                             });
                         }
+                    }
+                });
+            }
+        });
+
+
+        // Create explicit edges from Parent Folder to Children (Directory Hierarchy)
+        nodes.forEach(node => {
+            if (node.id === rootDir) return;
+
+            // Find parent directory
+            const parentDir = path.dirname(node.id);
+
+            // Find parent node in our visible nodes list
+            const parentNode = sortedNodes.find(n => n.id === parentDir);
+
+            // Only add edge if parent is visible (i.e., we are strictly opening a folder)
+            if (parentNode) {
+                const heirarchyEdgeId = `hierarchy-${parentNode.id}-${node.id}`;
+                // Avoid duplicating if we already have a dependency edge (though unlikely for folder->file)
+                if (!edgeSet.has(heirarchyEdgeId)) {
+                    edges.push({
+                        id: heirarchyEdgeId,
+                        source: parentNode.id,
+                        target: node.id,
+                        style: { stroke: '#475569', strokeDasharray: '5,5', opacity: 0.3 },
+                        animated: false,
+                        type: 'smoothstep'
                     });
                 }
-            } catch (e) {
-                console.warn("Dependency parsing partial failure:", e);
             }
-        }
+        });
 
         // Layout
         const elkChildren = nodes.map(n => ({ id: n.id, width: n.type === 'folder' ? 160 : 200, height: 60 }));
@@ -118,14 +172,15 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
         const layout = await elk.layout({
             id: "root",
             layoutOptions: {
-                "elk.algorithm": "layered",
-                "elk.direction": "DOWN",
+                "elk.algorithm": "radial",
                 "elk.spacing.nodeNode": "80",
-                "elk.layered.spacing.nodeNodeBetweenLayers": "100",
+                // Radial specific: places nodes in circles around center
             },
+
             children: elkChildren,
             edges: elkEdges
         });
+
 
         const positionedNodes = nodes.map(node => {
             const layoutNode = layout.children.find(n => n.id === node.id);
