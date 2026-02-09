@@ -151,8 +151,9 @@ const useStore = create((set, get) => ({
                 })),
                 nodes: nodes.map(node => ({
                     ...node,
-                    style: { opacity: 1 }
+                    style: { ...node.style, opacity: 1, filter: 'none', zIndex: 1 }
                 }))
+
             });
             return;
         }
@@ -173,16 +174,17 @@ const useStore = create((set, get) => ({
                 ...edge,
                 style: connectedEdgeIds.has(edge.id)
                     ? { stroke: '#2563eb', strokeWidth: 2, opacity: 1 }
-                    : { stroke: '#e5e7eb', strokeWidth: 1, opacity: 0.1 },
+                    : { stroke: '#e5e7eb', strokeWidth: 1, opacity: 0.2 },
                 animated: connectedEdgeIds.has(edge.id)
             })),
             nodes: nodes.map(node => ({
                 ...node,
                 style: connectedNodeIds.has(node.id)
-                    ? { opacity: 1 }
-                    : { opacity: 0.2 }
+                    ? { ...node.style, opacity: 1, filter: 'drop-shadow(0 0 6px #3b82f6)', zIndex: 10 }
+                    : { ...node.style, opacity: 1, filter: 'none', zIndex: 1 }
             }))
         });
+
     }
 }));
 
