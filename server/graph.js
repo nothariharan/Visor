@@ -118,12 +118,13 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 height: n.type === 'custom' ? 80 : 80,
                 children: [],
                 layoutOptions: n.type === 'folder' ? {
-                    "elk.padding": "[top=60,left=30,bottom=30,right=30]", // More space for header and framing
-                    "elk.spacing.nodeNode": "80", // Horizontal space between children
-                    "elk.layered.spacing.nodeNodeBetweenLayers": "100", // Vertical space
-                    "elk.algorithm": "layered", // Force layered inside groups too
-                    "elk.direction": "RIGHT"
+                    "elk.padding": "[top=60,left=30,bottom=30,right=30]",
+                    "elk.algorithm": "force", // Force inside folders for square-like arrangement
+                    "elk.force.iterations": "150",
+                    "elk.spacing.nodeNode": "60",
+                    "org.eclipse.elk.force.repulsion": "2.0"
                 } : undefined
+
             });
         });
 
@@ -151,13 +152,13 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
         const rootGraph = {
             id: "root",
             layoutOptions: {
-                "elk.algorithm": "layered",
+                "elk.algorithm": "force", // Back to force for organic spread
                 "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-                "elk.direction": "RIGHT",
-                "elk.spacing.nodeNode": "150", // More space between top level blocks
-                "elk.layered.spacing.nodeNodeBetweenLayers": "200",
-                "elk.padding": "[top=50,left=50,bottom=50,right=50]" // Root padding
+                "elk.force.iterations": "300",
+                "elk.spacing.nodeNode": "100",
+                "org.eclipse.elk.force.repulsion": "4.0", // Stronger repulsion for spread
             },
+
 
             children: rootChildren,
             edges: elkEdges
