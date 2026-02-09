@@ -36,14 +36,19 @@ const GraphContent = () => {
         return () => clearInterval(interval);
     }, [fetchGraph]);
 
+    const hasLoadedRef = React.useRef(false);
+
     // On mount or when significant structure changes, fit view
     useEffect(() => {
-        if (nodes.length > 0 && !loading) {
+        if (nodes.length > 0 && !loading && !hasLoadedRef.current) {
+            // Give a small delay for layout to settle
             setTimeout(() => {
                 fitView({ padding: 0.2, duration: 800 });
+                hasLoadedRef.current = true;
             }, 100);
         }
     }, [nodes.length, loading, fitView]);
+
 
     const onNodeMouseEnter = useCallback((event, node) => {
         highlightDependencies(node.id);

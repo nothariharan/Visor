@@ -21,8 +21,9 @@ const useStore = create((set, get) => ({
             newSet.add(folderId);
         }
         set({ expandedFolders: newSet });
-        fetchGraph(); // Trigger update
+        fetchGraph(false, folderId); // Pass false for isBackground, and folderId as anchor
     },
+
 
     expandPaths: (paths) => {
         const { expandedFolders, fetchGraph } = get();
@@ -76,27 +77,77 @@ const useStore = create((set, get) => ({
         });
     },
 
-    fetchGraph: async (isBackground = false) => {
+    fetchGraph: async (isBackground = false, anchorNodeId = null) => {
         if (!isBackground) {
             set({ loading: true, error: null });
         }
         try {
-            const { expandedFolders } = get();
+            const { expandedFolders, nodes } = get();
+
+            // Capture anchor node data before fetch if provided
+            let oldAnchorNode = null;
+            if (anchorNodeId) {
+                oldAnchorNode = nodes.find(n => n.id === anchorNodeId);
+            }
+
+
             const res = await axios.post('/api/graph', {
                 expandedFolders: Array.from(expandedFolders)
             });
 
             const incomingNodes = res.data.nodes || [];
-
             let mergedNodes = incomingNodes;
 
             if (isBackground) {
+                // Background update: Preserve user positions exactly
                 const currentNodes = get().nodes;
                 const positionMap = new Map(currentNodes.map(n => [n.id, n.position]));
                 mergedNodes = incomingNodes.map(newNode => {
                     const existingPos = positionMap.get(newNode.id);
                     return existingPos ? { ...newNode, position: existingPos } : newNode;
                 });
+            } else if (oldAnchorNode) {
+                // Layout Update with Anchor: Center-Based Anchoring
+                // const oldAnchorNode = nodes.find(n => n.id === anchorNodeId); // Use nodes captured at start of function? No, need original nodes including width
+                // Actually, I need to capture old dimensions before fetch
+                // But I only captured position. Need width/height too.
+
+                // Let's rely on stored node list `nodes` since we haven't mutated it yet? No, `get().nodes` is current.
+                // The `nodes` variable on line 85 holds the state at start of function.
+
+                const newAnchorNode = incomingNodes.find(n => n.id === anchorNodeId);
+
+                if (newAnchorNode && oldAnchorNode) {
+                    // Fallback dimensions if missing
+                    const oldW = oldAnchorNode.data?.width || oldAnchorNode.width || 150;
+                    const oldH = oldAnchorNode.data?.height || oldAnchorNode.height || 60;
+
+                    const newW = newAnchorNode.data?.width || newAnchorNode.width || 150;
+                    const newH = newAnchorNode.data?.height || newAnchorNode.height || 60;
+
+                    const oldCenterX = oldAnchorNode.position.x + oldW / 2;
+                    const oldCenterY = oldAnchorNode.position.y + oldH / 2;
+
+                    // Desired top-left for new node so its center matches old center
+                    const desiredX = oldCenterX - newW / 2;
+                    const desiredY = oldCenterY - newH / 2;
+
+                    const dx = desiredX - newAnchorNode.position.x;
+                    const dy = desiredY - newAnchorNode.position.y;
+
+                    mergedNodes = incomingNodes.map(n => {
+                        // Only shift root nodes (no parent) to move the whole "world"
+                        // Children move with their parents automatically
+                        if (!n.parentNode) {
+                            return {
+                                ...n,
+                                position: { x: n.position.x + dx, y: n.position.y + dy }
+                            };
+                        }
+                        return n;
+                    });
+
+                }
             }
 
 
@@ -118,6 +169,7 @@ const useStore = create((set, get) => ({
             set({ error: err.message, loading: false });
         }
     },
+
 
 
     onNodesChange: (changes) => {

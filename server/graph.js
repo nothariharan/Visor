@@ -157,7 +157,10 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 "elk.force.iterations": "300",
                 "elk.spacing.nodeNode": "100",
                 "org.eclipse.elk.force.repulsion": "4.0", // Stronger repulsion for spread
+                "elk.randomSeed": "123456", // Ensure deterministic layout
+                "elk.force.model": "EADES", // Stress majorization is often more stable
             },
+
 
 
             children: rootChildren,
