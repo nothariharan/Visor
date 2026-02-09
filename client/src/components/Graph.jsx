@@ -5,8 +5,12 @@ import ReactFlow, {
     useNodesState,
     useEdgesState,
     addEdge,
-    MiniMap
+    MiniMap,
+    ReactFlowProvider,
+    useReactFlow
 } from 'reactflow';
+
+
 import { Loader2 } from 'lucide-react';
 import 'reactflow/dist/style.css';
 import useStore from '../store';
@@ -21,16 +25,10 @@ const nodeTypes = {
 };
 
 
-const Graph = () => {
-    const {
-        nodes,
-        edges,
-        fetchGraph,
-        onNodesChange,
-        onEdgesChange,
-        highlightDependencies,
-        loading
-    } = useStore();
+// Inner component that uses the hook
+const GraphContent = () => {
+    const { nodes, edges, fetchGraph, onNodesChange, onEdgesChange, highlightDependencies, loading } = useStore();
+    const { fitView } = useReactFlow();
 
     useEffect(() => {
         fetchGraph();
@@ -38,8 +36,14 @@ const Graph = () => {
         return () => clearInterval(interval);
     }, [fetchGraph]);
 
-
-
+    // On mount or when significant structure changes, fit view
+    useEffect(() => {
+        if (nodes.length > 0 && !loading) {
+            setTimeout(() => {
+                fitView({ padding: 0.2, duration: 800 });
+            }, 100);
+        }
+    }, [nodes.length, loading, fitView]);
 
     const onNodeMouseEnter = useCallback((event, node) => {
         highlightDependencies(node.id);
@@ -48,10 +52,6 @@ const Graph = () => {
     const onNodeMouseLeave = useCallback(() => {
         highlightDependencies(null);
     }, [highlightDependencies]);
-
-
-    // Adjust default viewport
-    const defaultViewport = { x: 0, y: 0, zoom: 0.5 };
 
     return (
         <div style={{ height: '100vh', width: '100vw' }}>
@@ -63,7 +63,6 @@ const Graph = () => {
                 onNodeMouseEnter={onNodeMouseEnter}
                 onNodeMouseLeave={onNodeMouseLeave}
                 nodeTypes={nodeTypes}
-                defaultViewport={defaultViewport}
                 fitView
                 attributionPosition="bottom-right"
             >
@@ -91,5 +90,11 @@ const Graph = () => {
     );
 };
 
+const Graph = () => (
+    <ReactFlowProvider>
+        <GraphContent />
+    </ReactFlowProvider>
+);
 
 export default Graph;
+

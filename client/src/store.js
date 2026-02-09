@@ -44,7 +44,7 @@ const useStore = create((set, get) => ({
             // Unhide all
             set({
                 nodes: nodes.map(n => ({ ...n, hidden: false, style: { ...n.style, opacity: 1 } })),
-                edges: edges.map(e => ({ ...e, hidden: false, style: { ...e.style, opacity: 0.5 } }))
+                edges: edges.map(e => ({ ...e, hidden: false, style: { ...e.style, opacity: 0.4 } }))
             });
             return;
         }
@@ -86,17 +86,34 @@ const useStore = create((set, get) => ({
                 expandedFolders: Array.from(expandedFolders)
             });
 
+            const incomingNodes = res.data.nodes || [];
+
+            let mergedNodes = incomingNodes;
+
+            if (isBackground) {
+                const currentNodes = get().nodes;
+                const positionMap = new Map(currentNodes.map(n => [n.id, n.position]));
+                mergedNodes = incomingNodes.map(newNode => {
+                    const existingPos = positionMap.get(newNode.id);
+                    return existingPos ? { ...newNode, position: existingPos } : newNode;
+                });
+            }
+
+
+            // Set initial opacity for edges
+            const edgesWithStyle = (res.data.edges || []).map(e => ({
+                ...e,
+                style: { ...e.style, opacity: 0.4, stroke: '#b1b1b7' }
+            }));
+
             set({
-                nodes: res.data.nodes || [],
-                edges: res.data.edges || [],
+                nodes: mergedNodes,
+                edges: edgesWithStyle,
                 adjacency: res.data.adjacency || {},
                 loading: false,
-                // Do not reset focusedNode on background refreshes, otherwise it interrupts user inspection
-                // But if structure changed, focus might be invalid. Let's keep it simple: only reset if not background?
-                // Or maybe just don't reset focusedNode at all unless it's gone?
-                // Original logic reset focusedNode. Let's remove that destructive behavior for background updates.
                 focusedNode: isBackground ? get().focusedNode : null
             });
+
         } catch (err) {
             set({ error: err.message, loading: false });
         }
@@ -129,7 +146,7 @@ const useStore = create((set, get) => ({
             set({
                 edges: edges.map(edge => ({
                     ...edge,
-                    style: { stroke: '#b1b1b7', strokeWidth: 1, opacity: 0.5 },
+                    style: { stroke: '#b1b1b7', strokeWidth: 1, opacity: 0.4 },
                     animated: false
                 })),
                 nodes: nodes.map(node => ({

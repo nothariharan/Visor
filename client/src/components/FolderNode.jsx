@@ -13,21 +13,49 @@ const FolderNode = ({ id, data, isConnectable }) => {
         toggleFolder(id);
     };
 
+    // Group/Container Style for Expanded Folders
+    if (isExpanded) {
+        return (
+            <div
+                onClick={handleClick}
+                className="relative rounded-lg border-2 border-slate-600 bg-slate-800/50 transition-colors group"
+                style={{ width: data.width, height: data.height }}
+            >
+
+                {/* Header / Label Area */}
+                <div className="absolute top-0 left-0 right-0 px-3 py-1 bg-slate-800 border-b border-slate-600 rounded-t-lg flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <FolderOpen size={14} className="text-yellow-500" />
+                        <span className="font-bold text-xs text-slate-300 truncate tracking-wide">{label}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors">
+                        Click to collapse
+                    </div>
+                </div>
+
+                {/* Handles for connections to the group itself */}
+                <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500 !w-2 !h-6 !rounded-sm" style={{ top: '15px' }} />
+                <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500 !w-2 !h-6 !rounded-sm" style={{ top: '15px' }} />
+            </div>
+        );
+    }
+
+    // Standard Collapsed Folder Node
     return (
         <div
             onClick={handleClick}
-            className={`px-4 py-2 shadow-md rounded-md bg-slate-700 border-2 border-slate-600 hover:border-blue-400 cursor-pointer min-w-[150px] transition-colors`}
+            className={`px-4 py-2 shadow-md rounded-md bg-indigo-900/40 border border-indigo-500/50 hover:border-blue-400 cursor-pointer min-w-[150px] transition-all backdrop-blur-sm`}
         >
             <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500" />
 
             <div className="flex items-center">
-                <div className="mr-2 text-yellow-500">
-                    {isExpanded ? <FolderOpen size={16} /> : <Folder size={16} />}
+                <div className="mr-2 text-yellow-500 opacity-80">
+                    <Folder size={16} />
                 </div>
                 <div className="flex-1">
-                    <div className="font-bold text-sm text-slate-200 truncate">{label}</div>
-                    <div className="text-[10px] text-slate-400">
-                        {isExpanded ? 'Click to collapse' : 'Click to expand'}
+                    <div className="font-medium text-sm text-slate-200 truncate">{label}</div>
+                    <div className="text-[10px] text-slate-500">
+                        {data.fileCount ? `${data.fileCount} items` : 'Click to expand'}
                     </div>
                 </div>
             </div>
@@ -35,6 +63,7 @@ const FolderNode = ({ id, data, isConnectable }) => {
             <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />
         </div>
     );
+
 
 };
 
