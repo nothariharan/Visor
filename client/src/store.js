@@ -99,55 +99,73 @@ const useStore = create((set, get) => ({
             let mergedNodes = incomingNodes;
 
             if (isBackground) {
-                // Background update: Preserve user positions exactly
+                // Background: Preserve all positions
                 const currentNodes = get().nodes;
                 const positionMap = new Map(currentNodes.map(n => [n.id, n.position]));
                 mergedNodes = incomingNodes.map(newNode => {
                     const existingPos = positionMap.get(newNode.id);
                     return existingPos ? { ...newNode, position: existingPos } : newNode;
                 });
-            } else if (oldAnchorNode) {
-                // Layout Update with Anchor: Center-Based Anchoring
-                // const oldAnchorNode = nodes.find(n => n.id === anchorNodeId); // Use nodes captured at start of function? No, need original nodes including width
-                // Actually, I need to capture old dimensions before fetch
-                // But I only captured position. Need width/height too.
+            } else if (oldAnchorNode && anchorNodeId) {
+                // Interactive Mode: Pin siblings, Update Anchor + Relatives
+                const currentNodes = get().nodes;
+                const oldNodeMap = new Map(currentNodes.map(n => [n.id, n]));
 
-                // Let's rely on stored node list `nodes` since we haven't mutated it yet? No, `get().nodes` is current.
-                // The `nodes` variable on line 85 holds the state at start of function.
+                // Helper to check relationship
+                // A simplistic check assuming paths. 
+                // Adjust separator check for Windows ('\\') vs Posix ('/')
+                const isRelated = (id) => {
+                    if (id === anchorNodeId) return true;
+                    // Ancestor check (anchor starts with id)
+                    if (anchorNodeId.startsWith(id) && anchorNodeId.includes(id)) return true;
+                    // Descendant check (id starts with anchor)
+                    if (id.startsWith(anchorNodeId)) return true;
+                    return false;
+                };
 
+                // Calculate Anchor Shift (dx, dy)
+                // We want the Anchor Node's specific "Center" to remain constant
                 const newAnchorNode = incomingNodes.find(n => n.id === anchorNodeId);
+                let dx = 0, dy = 0;
 
                 if (newAnchorNode && oldAnchorNode) {
-                    // Fallback dimensions if missing
                     const oldW = oldAnchorNode.data?.width || oldAnchorNode.width || 150;
                     const oldH = oldAnchorNode.data?.height || oldAnchorNode.height || 60;
-
                     const newW = newAnchorNode.data?.width || newAnchorNode.width || 150;
                     const newH = newAnchorNode.data?.height || newAnchorNode.height || 60;
 
                     const oldCenterX = oldAnchorNode.position.x + oldW / 2;
                     const oldCenterY = oldAnchorNode.position.y + oldH / 2;
-
-                    // Desired top-left for new node so its center matches old center
                     const desiredX = oldCenterX - newW / 2;
                     const desiredY = oldCenterY - newH / 2;
 
-                    const dx = desiredX - newAnchorNode.position.x;
-                    const dy = desiredY - newAnchorNode.position.y;
-
-                    mergedNodes = incomingNodes.map(n => {
-                        // Only shift root nodes (no parent) to move the whole "world"
-                        // Children move with their parents automatically
-                        if (!n.parentNode) {
-                            return {
-                                ...n,
-                                position: { x: n.position.x + dx, y: n.position.y + dy }
-                            };
-                        }
-                        return n;
-                    });
-
+                    dx = desiredX - newAnchorNode.position.x;
+                    dy = desiredY - newAnchorNode.position.y;
                 }
+
+                mergedNodes = incomingNodes.map(newNode => {
+                    const oldNode = oldNodeMap.get(newNode.id);
+
+                    // If Unrelated and Old Node exists -> PIN IT
+                    if (oldNode && !isRelated(newNode.id)) {
+                        return { ...newNode, position: oldNode.position, width: oldNode.width, height: oldNode.height };
+                    }
+
+                    // If Related (or new) -> USE NEW (Server) + Anchor Shift if Root
+                    if (!newNode.parentNode) {
+                        return {
+                            ...newNode,
+                            position: { x: newNode.position.x + dx, y: newNode.position.y + dy }
+                        };
+                    }
+
+                    // Children of related nodes just take new relative pos
+                    return newNode;
+                });
+
+            } else {
+                // First load or full reset
+                mergedNodes = incomingNodes;
             }
 
 

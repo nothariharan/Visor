@@ -152,14 +152,15 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
         const rootGraph = {
             id: "root",
             layoutOptions: {
-                "elk.algorithm": "force", // Back to force for organic spread
+                "elk.algorithm": "force",
                 "elk.hierarchyHandling": "INCLUDE_CHILDREN",
                 "elk.force.iterations": "300",
                 "elk.spacing.nodeNode": "100",
-                "org.eclipse.elk.force.repulsion": "4.0", // Stronger repulsion for spread
+                "org.eclipse.elk.force.repulsion": "4.0",
                 "elk.randomSeed": "123456", // Ensure deterministic layout
-                "elk.force.model": "EADES", // Stress majorization is often more stable
+                "elk.force.model": "EADES",
             },
+
 
 
 
