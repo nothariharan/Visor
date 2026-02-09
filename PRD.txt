@@ -1,0 +1,600 @@
+# Product Requirement Document (PRD): VISOR
+
+**Version:** 2.0 (Enhanced Hackathon Prototype)  
+**Date:** February 2026  
+**Tagline:** The Visual Operating System for Your Codebase.
+
+---
+
+## 1. Executive Summary
+
+VISOR is a developer tool that transforms the abstract, text-based nature of coding into a tangible, spatial experience. Unlike traditional IDEs that trap files in a vertical list, Visor visualizes the entire codebase as a living, breathing city map.
+
+It runs as a CLI Tool (`npx visor .`) that spins up a local "Control Tower" in the browser. From this dashboard, developers can visualize architecture, edit code in real-time, and leverage agnostic AI to fix errors—all without leaving the visual interface.
+
+**Core Philosophy:** "See the System, Not Just the Syntax."
+
+**Positioning:** VISOR is not an IDE replacement. It's the **missing layer between your IDE and your architecture docs**—the tool you open on a second monitor when you need to understand or refactor a complex system.
+
+---
+
+## 2. System Architecture
+
+Visor operates on a **Client-Server Model** running entirely on localhost. It bridges the User's File System (OS) with a Modern Web Interface (Browser).
+
+### 2.1 The "Brain" (CLI Backend)
+
+- **Runtime:** Node.js
+- **Role:** Acts as the bridge between the Operating System and the Frontend
+- **Responsibilities:**
+  - **File Watching:** Uses `chokidar` to detect file creation, deletion, or modification in real-time
+  - **Dependency Parsing:** Uses `madge` to generate the Abstract Syntax Tree (AST) and map file dependencies
+  - **I/O Operations:** Reads and writes file content upon request
+  - **AI Gateway:** Routes prompt requests to the configured AI provider (Gemini, OpenAI, or Local LLM)
+  - **Graph Optimization:** Implements lazy-loading and filtering strategies to prevent UI overload
+
+### 2.2 The "Face" (Frontend Dashboard)
+
+- **Runtime:** React (Vite)
+- **Role:** The interactive visual interface
+- **Responsibilities:**
+  - **Rendering:** Uses React Flow to render the dependency graph with performance optimizations
+  - **Editing:** Embeds Monaco Editor for code manipulation
+  - **Communication:** Maintains a persistent Socket.io connection to the Backend for live updates
+  - **State Management:** Persists graph layout and view state to localStorage to survive reconnections
+
+---
+
+## 3. Detailed Feature Specifications
+
+### 3.1 Feature: The "God View" (Live Architecture Graph)
+
+**Objective:** Visualize the project structure dynamically without overwhelming the user.
+
+#### Working Mechanism
+
+**Initialization:**
+- On launch, the backend scans the directory excluding `node_modules`, `.git`, `dist`, `build`, and other configurable ignore patterns
+- Backend generates a hierarchical representation of the project structure
+
+**Graph Generation:**
+- **Nodes:** Every file is a Node
+- **Edges:** Every import statement (e.g., `import X from './Y'`) creates a directional Edge
+- **Clusters:** Files in the same folder are grouped visually into "Parent Containers"
+
+**Visual Style (The "n8n" Standard):**
+- Nodes are **Rich Cards** containing:
+  - File Icon (based on extension)
+  - File Name
+  - Health Status (Green/Red based on linting or errors)
+  - Last Modified Time
+- Edges are **Animated Bezier Curves**
+  - A "pulse" animation travels along the line to indicate dependency flow
+  - Color-coded by import type (default, named, dynamic)
+
+**Live Sync:**
+- If the user creates `Payment.js` in VS Code, `chokidar` fires an `add` event
+- The Backend recalculates the graph and emits `graph:update`
+- The Frontend smoothly animates the new node popping into existence
+
+---
+
+### 3.2 Feature: SCALABILITY ENGINE (Traffic Prevention System)
+
+**Problem:** Real codebases with 500+ files create unusable hairball graphs and cause performance degradation.
+
+**Solution:** Multi-layered optimization strategy to keep the graph clean, fast, and meaningful.
+
+#### 3.2.1 Lazy Folder Expansion (On-Demand Loading)
+
+**Mechanism:**
+- **Initial State:** Folders render as **collapsed nodes** showing only:
+  - Folder name
+  - File count badge (e.g., "23 files")
+  - Aggregate dependency indicators (incoming/outgoing edge counts)
+- **Expansion Trigger:** User clicks the folder node
+- **Behavior:**
+  - Backend sends only the contents of that specific folder
+  - Frontend animates the folder "exploding" into individual file nodes
+  - Maintains parent-child visual hierarchy
+- **Collapse:** User can re-collapse folders to restore clean view
+
+**Benefits:**
+- Reduces initial render from 500+ nodes to ~20-30 top-level folders
+- User explores depth progressively (just-in-time rendering)
+
+#### 3.2.2 Focus Mode (Degree-Based Filtering)
+
+**Mechanism:**
+- **Activation:** User clicks a file node OR uses search
+- **Algorithm:**
+  - Calculate graph distance from selected node using BFS (Breadth-First Search)
+  - Render only nodes within **N degrees** (default: 2)
+  - **Degree 0:** The selected file itself
+  - **Degree 1:** Direct dependencies (imports/imported by)
+  - **Degree 2:** Dependencies of dependencies
+- **Visual Treatment:**
+  - Focused nodes: Full opacity, normal size
+  - Out-of-focus nodes: 20% opacity, 50% size (ghosted)
+  - OR completely hidden (user preference toggle)
+- **Exit:** Click background OR press `Esc` to restore full graph
+
+**UI Control:**
+```
+[Focus Mode: ON]  Depth: [1] [2] [3] [All]
+```
+
+**Benefits:**
+- Isolates relevant context for refactoring tasks
+- Answers "What breaks if I change this file?" at a glance
+
+#### 3.2.3 Smart Search with Highlight Isolation
+
+**Mechanism:**
+- **Input:** User types in search bar (e.g., "auth")
+- **Matching Logic:**
+  - File names containing "auth"
+  - Files importing from paths containing "auth"
+  - Content-based search (optional, for indexed terms)
+- **Visual Response:**
+  - Matching nodes: **Highlighted** (yellow glow + pulse animation)
+  - Non-matching nodes: Dimmed to 30% opacity
+  - Matching edges: Bright green
+  - Non-matching edges: Hidden
+- **Auto-Expand:** If matches are inside collapsed folders, auto-expand those folders
+
+**UI Enhancement:**
+```
+🔍 Search: [auth_________]  
+   ✓ 12 matches found
+   [Show Only Matches] [Expand All Matches]
+```
+
+**Benefits:**
+- Instantly locates all authentication-related modules
+- Acts as visual grep for codebase navigation
+
+#### 3.2.4 Virtual Rendering (Performance Optimization)
+
+**Mechanism:**
+- **Library:** Use `react-window` or React Flow's built-in viewport culling
+- **Behavior:**
+  - Only render nodes visible in current viewport + 100px buffer
+  - Nodes outside viewport exist in state but don't mount DOM elements
+- **Pan/Zoom Handling:**
+  - As user pans, dynamically mount/unmount nodes
+  - Throttle graph updates during rapid pan operations
+
+**Target Performance:**
+- Smooth 60fps with 1000+ nodes in state
+- Max 200 nodes rendered simultaneously
+
+#### 3.2.5 Configurable Ignore Patterns
+
+**File:** `visor.config.json`
+```json
+{
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/*.test.js",
+    "**/*.spec.ts",
+    "**/dist/**",
+    "**/__mocks__/**"
+  ],
+  "maxDepth": 10,
+  "autoCollapseThreshold": 15
+}
+```
+
+- **autoCollapseThreshold:** If a folder contains more than N files, collapse it by default
+
+---
+
+### 3.3 Feature: The "Tactical Editor" (Bi-Directional Editing)
+
+**Objective:** Allow code editing directly from the visual graph.
+
+#### Working Mechanism
+
+**Selection:**
+- User clicks a Node (e.g., `App.jsx`)
+
+**Fetch:**
+- Frontend requests `GET /api/files?path=...`
+
+**Display:**
+- A side panel slides in from the right (40% viewport width)
+- Loads the Monaco Editor instance with the file content
+- Shows file metadata header:
+  - File path
+  - Last modified timestamp
+  - LOC (Lines of Code) count
+  - Language detected
+
+**Edit & Save:**
+- User modifies code in the browser
+- User presses `Ctrl+S` (Save) or clicks "Save" button
+- Frontend sends `POST /api/files` with the new content
+- Backend writes to disk using `fs.writeFile`
+- **Success toast:** "✓ Saved App.jsx"
+
+**Synchronization:**
+- The external IDE (VS Code, Cursor, etc.) updates instantly because it watches the same disk file
+- If external IDE saves, `chokidar` detects the change
+- Backend emits `file:change` event
+- Frontend updates Monaco Editor content (with conflict detection)
+
+**Conflict Handling:**
+- If both VISOR and IDE edit simultaneously:
+  - Show diff modal: "External change detected"
+  - Options: [Keep VISOR Version] [Use External Version] [View Diff]
+
+---
+
+### 3.4 Feature: The "Guardian AI" (Agnostic Auto-Fix)
+
+**Objective:** Detect errors and fix them using AI without vendor lock-in.
+
+**Philosophy:** AI should be **scoped and predictable**, not a magic black box.
+
+#### Working Mechanism
+
+**Trigger Options:**
+1. User clicks **"✨ AI Fix"** button in the Tactical Editor panel
+2. Health status indicator turns red (linting error detected)
+3. User selects code and right-clicks → "Fix with AI"
+
+**Payload Construction:**
+Frontend packages:
+- `brokenCode`: The current content of the editor
+- `errorMessage`: (If available) The linting/compiler error
+- `fixScope`: User-selected scope (see below)
+- `context`: (Optional) Surrounding files for better inference
+
+**Fix Scope Options (Dropdown):**
+```
+Select Fix Type:
+○ Fix Linting Errors Only
+○ Add Missing TypeScript Types
+○ Optimize Imports
+○ Refactor for Readability
+○ Custom Prompt: [_____________]
+```
+
+**The API Call (Provider Agnostic):**
+
+Backend receives the request at `/api/ai/fix` and checks `visor.config.json` for the active provider:
+
+```javascript
+// Pseudo-code for Agnostic AI Handler
+async function handleAIRequest(prompt, fixScope) {
+    const provider = config.aiProvider; // "gemini", "openai", "ollama"
+    
+    // Construct scoped prompt
+    const scopedPrompt = buildScopedPrompt(prompt, fixScope);
+
+    if (provider === "gemini") {
+        return await callGeminiAPI(scopedPrompt);
+    } else if (provider === "openai") {
+        return await callOpenAI(scopedPrompt);
+    } else if (provider === "ollama") {
+        return await callLocalLLM(scopedPrompt);
+    }
+}
+
+function buildScopedPrompt(code, scope) {
+    const templates = {
+        linting: `Fix only ESLint errors in this code. Do not change logic:\n${code}`,
+        types: `Add TypeScript types. Maintain existing logic:\n${code}`,
+        imports: `Optimize and organize imports. Remove unused:\n${code}`,
+        custom: code // User's raw prompt
+    };
+    return templates[scope] || templates.custom;
+}
+```
+
+**Response Handling:**
+- AI returns the corrected code block
+- Frontend shows **diff view** (Monaco's built-in diff editor):
+  - Left pane: Original code
+  - Right pane: AI-suggested code
+  - Highlights differences in green/red
+- User options:
+  - **[Accept All]** - Replace entire file
+  - **[Accept Partially]** - Click individual changes to accept
+  - **[Reject]** - Close without changes
+  - **[Retry with Different Prompt]**
+
+**Undo Stack:**
+- Maintain last 10 AI-generated changes
+- `Ctrl+Z` reverts to pre-AI state
+- Persists across sessions (localStorage)
+
+**Benefits:**
+- Scoped AI prevents hallucinations
+- Diff view builds trust before applying changes
+- Provider agnostic means users aren't locked into pricing changes
+
+---
+
+### 3.5 Feature: "Deep Link" Navigation
+
+**Objective:** Seamless transition between Visor and the user's primary IDE.
+
+#### Working Mechanism
+
+**Protocol Handlers:**
+Most IDEs register custom URL protocols:
+- VS Code: `vscode://`
+- Cursor: `cursor://`
+- IntelliJ: `idea://`
+- Sublime: `subl://`
+
+**Action:**
+- User clicks the **"Open in Editor"** icon (external link symbol) on a node
+
+**Execution:**
+```javascript
+const editorProtocol = config.defaultEditor || 'vscode';
+const fileUrl = `${editorProtocol}://file/${absolutePath}:${lineNumber}`;
+window.location.href = fileUrl;
+```
+
+**Result:**
+- The OS brings the configured IDE to the foreground
+- The specific file opens
+- (If line number provided) Cursor jumps to that line
+
+**Configuration UI:**
+```
+Settings → Default Editor
+○ VS Code
+○ Cursor
+○ IntelliJ IDEA
+○ Sublime Text
+○ Custom: [___________]
+```
+
+---
+
+## 4. Data Flow & API Endpoints
+
+### 4.1 WebSocket Events (Socket.io)
+
+| Event Name | Direction | Payload | Description |
+|------------|-----------|---------|-------------|
+| `connection` | Client → Server | `{ clientId }` | Handshake initiated |
+| `graph:init` | Server → Client | `{ nodes, edges, folders }` | Initial graph data upon load |
+| `graph:update` | Server → Client | `{ nodes, edges }` | Sent whenever file system changes |
+| `file:change` | Server → Client | `{ path, content, timestamp }` | Updates editor if file changes externally |
+| `folder:expand` | Client → Server | `{ folderPath }` | Request folder contents |
+| `folder:expanded` | Server → Client | `{ folderPath, children }` | Returns child nodes/edges |
+| `focus:activate` | Client → Server | `{ nodeId, depth }` | Request focus mode calculation |
+| `focus:result` | Server → Client | `{ focusedNodes, dimmedNodes }` | Returns filtered node IDs |
+
+### 4.2 REST API Endpoints (Express)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/files?path=<path>` | Returns file content as text |
+| `POST` | `/api/files` | Body: `{ path, content }`. Writes content to disk |
+| `POST` | `/api/ai/fix` | Body: `{ code, error, scope }`. Returns fixed code from active AI provider |
+| `GET` | `/api/config` | Returns current project configuration (AI provider, theme, editor) |
+| `PUT` | `/api/config` | Updates configuration |
+| `GET` | `/api/search?query=<term>` | Returns matching file paths and content snippets |
+| `POST` | `/api/graph/focus` | Body: `{ nodeId, depth }`. Returns focused subgraph |
+| `GET` | `/api/health` | Returns lint errors, test failures, build status |
+
+---
+
+## 5. Technical Implementation Roadmap (7 Days)
+
+### Phase 1: The Foundation (Days 1-2)
+
+**Backend:**
+- Set up Express server and `chokidar` watcher
+- Implement the `madge` parser to return a raw JSON dependency tree
+- Build hierarchical folder structure with lazy-loading endpoints
+- **Deliverable:** REST API returning `{ folders, files, dependencies }`
+
+**Frontend:**
+- Initialize React with Vite
+- Install `reactflow` and render basic nodes
+- Implement folder collapse/expand UI (no backend integration yet)
+- **Deliverable:** Static graph renders with mock data
+
+### Phase 2: The Visuals (Days 3-4)
+
+**Styling:**
+- Implement Custom Nodes in React Flow (n8n style cards)
+- Add CSS animations for the connection lines (pulse effect)
+- Build Focus Mode UI controls (depth slider, toggle)
+- **Deliverable:** Beautiful, animated graph
+
+**Real-time:**
+- Connect `socket.io` between frontend and backend
+- Ensure that adding a dummy file in the folder makes a node pop up in the browser
+- Implement lazy folder expansion (click → load → animate)
+- **Deliverable:** Live graph updates with folder expansion
+
+### Phase 3: The Intelligence (Days 5-6)
+
+**Editor:**
+- Integrate `@monaco-editor/react`
+- Implement the Read/Write API endpoints
+- Build conflict detection for simultaneous edits
+- **Deliverable:** Full editing capability with sync
+
+**AI Layer:**
+- Build the AI Service Adapter in the backend
+- Implement the Gemini API call as the default provider
+- Build diff view UI for AI suggestions
+- Connect the "Fix" button with scoped prompts
+- **Deliverable:** Working AI fix with accept/reject flow
+
+**Search & Focus:**
+- Implement search indexing (file names + basic content)
+- Build Focus Mode algorithm (BFS graph traversal)
+- Connect search to highlight + auto-expand
+- **Deliverable:** Search and Focus Mode fully functional
+
+### Phase 4: Polish & Demo (Day 7)
+
+**Deep Linking:**
+- Add the `vscode://` link button
+- Implement editor protocol detection
+
+**Performance:**
+- Add virtual rendering for large graphs
+- Optimize React Flow rendering (memoization)
+- Add loading states and error boundaries
+
+**Demo Script:**
+- Use a **real open-source project** (e.g., a React component library with ~100 files)
+- Demonstrate:
+  1. Initial collapsed view (clean)
+  2. Folder expansion (one click reveals structure)
+  3. Focus Mode (isolate authentication module)
+  4. Search (find all "useEffect" files)
+  5. Edit + Save (changes sync to VS Code)
+  6. AI Fix (fix a TypeScript error with diff view)
+  7. Deep link (jump back to IDE)
+- Record final video with voiceover
+
+---
+
+## 6. Known Limitations & Future Enhancements
+
+### Current Limitations
+
+**Language Support:**
+- `madge` only supports JavaScript/TypeScript
+- **Future:** Add parsers for Python (AST), Go (go list), Rust (cargo tree)
+
+**Monorepo Support:**
+- Initial version treats monorepo as single project
+- **Future:** Detect `turborepo.json`/`nx.json` and render workspace boundaries
+
+**Race Conditions:**
+- If both VS Code and VISOR write simultaneously, last-write-wins
+- **Future:** Implement CRDT (Conflict-Free Replicated Data Type) or OT (Operational Transform)
+
+**State Persistence:**
+- Graph layout resets on browser refresh
+- **Future:** Persist node positions to `.visor/layout.json`
+
+### Roadmap (Post-Hackathon)
+
+**v2.0: Collaboration Mode**
+- Multiple developers view the same graph simultaneously
+- Real-time cursors showing who's editing what
+- Integrated chat/comments on nodes
+
+**v3.0: Time Travel**
+- Scrub through Git history
+- Visualize how architecture evolved over time
+- Animate refactors (e.g., show file migration)
+
+**v4.0: Production Insights**
+- Integrate with error tracking (Sentry, Rollbar)
+- Overlay runtime metrics on nodes (error rate, latency)
+- Highlight files with most bugs/crashes
+
+---
+
+## 7. Success Metrics (Hackathon Judging Criteria)
+
+### Technical Excellence
+- **Graph renders <500ms** for 100-file project
+- **Zero layout jank** during folder expansion
+- **Bi-directional sync** works flawlessly
+
+### Innovation
+- **First tool** to combine live dependency graphs + in-browser editing + AI fixes
+- **Lazy expansion** solves the "hairball problem" competitors ignore
+
+### Practicality
+- **Real developers** can use this on **real projects** Day 1
+- Works with any IDE (not locked to VS Code)
+- No cloud signup required (runs fully local)
+
+### Demo Impact
+- Audience gasps when you fix a bug without leaving the graph
+- "I would pay for this" comments in chat
+
+---
+
+## 8. Configuration File Reference
+
+**File:** `visor.config.json` (auto-generated in project root)
+
+```json
+{
+  "version": "2.0",
+  "aiProvider": "gemini",
+  "aiApiKey": "env:GEMINI_API_KEY",
+  "defaultEditor": "vscode",
+  "theme": "dark",
+  "graph": {
+    "ignorePatterns": [
+      "**/node_modules/**",
+      "**/*.test.js",
+      "**/*.spec.ts",
+      "**/dist/**",
+      "**/build/**",
+      "**/.git/**"
+    ],
+    "maxDepth": 10,
+    "autoCollapseThreshold": 15,
+    "defaultFocusDepth": 2,
+    "showFileExtensions": true,
+    "animateEdges": true
+  },
+  "editor": {
+    "fontSize": 14,
+    "tabSize": 2,
+    "autoSave": true,
+    "formatOnSave": false
+  },
+  "performance": {
+    "maxNodesRendered": 200,
+    "virtualScrolling": true,
+    "debounceFileWatch": 100
+  }
+}
+```
+
+---
+
+## 9. Appendix: Why VISOR vs. VS Code Extension?
+
+**The Question:** "Couldn't this just be a VS Code plugin?"
+
+**The Answer:**
+
+1. **Cross-IDE Compatibility**
+   - Works with Vim, Sublime, IntelliJ, Cursor, etc.
+   - Developers shouldn't be forced to switch editors
+
+2. **Screen Real Estate**
+   - Architecture graphs need dedicated monitor space
+   - Sidebars are too cramped for 50+ node graphs
+
+3. **Mental Mode Separation**
+   - Editing code ≠ Understanding architecture
+   - VISOR is the tool you open when refactoring, onboarding, or debugging cross-module issues
+   - IDE is for implementation
+
+4. **Performance Isolation**
+   - Heavy graph rendering doesn't slow down your editor
+   - Runs in separate process (Node.js backend)
+
+5. **Future Collaboration**
+   - Browser-based = easier to share graphs with team
+   - VS Code Live Share doesn't include custom extensions well
+
+---
+
+**End of Document**
+
+*This PRD is optimized for a 7-day hackathon build with scalability built-in from Day 1. Focus on Phase 1-2 for a polished demo; Phase 3-4 features can be shown as "in progress" if time runs short.*
