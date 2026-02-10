@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
 import { Handle, Position, useReactFlow } from 'reactflow';
-import { Folder, FolderOpen } from 'lucide-react';
+import { Folder, FolderOpen, ExternalLink } from 'lucide-react';
 import useStore from '../store';
 
 const FolderNode = ({ id, data, isConnectable }) => {
@@ -28,8 +28,18 @@ const FolderNode = ({ id, data, isConnectable }) => {
                         <FolderOpen size={14} className="text-yellow-500" />
                         <span className="font-bold text-xs text-slate-300 truncate tracking-wide">{label}</span>
                     </div>
-                    <div className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors">
-                        Click to collapse
+                    <div className="flex items-center gap-2">
+                        <a
+                            href={`vscode://file/${data.path || id}`}
+                            className="deep-link-btn !w-[18px] !h-[18px]"
+                            title="Open folder in VS Code"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <ExternalLink size={10} />
+                        </a>
+                        <div className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors">
+                            Click to collapse
+                        </div>
                     </div>
                 </div>
 
@@ -58,6 +68,14 @@ const FolderNode = ({ id, data, isConnectable }) => {
                         {data.fileCount ? `${data.fileCount} items` : 'Click to expand'}
                     </div>
                 </div>
+                <a
+                    href={`vscode://file/${data.path || id}`}
+                    className="deep-link-btn !w-[20px] !h-[20px] ml-2"
+                    title="Open folder in VS Code"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <ExternalLink size={11} />
+                </a>
             </div>
 
             <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />

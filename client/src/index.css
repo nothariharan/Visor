@@ -13,3 +13,82 @@ body,
   color: #e2e8f0;
   /* Slate 200 */
 }
+
+/* ===== EDGE PULSE ANIMATION ===== */
+/* Animated dots that travel along dependency edges */
+@keyframes edgePulse {
+  0% {
+    stroke-dashoffset: 24;
+  }
+  100% {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes edgeGlow {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* Default dependency edges - subtle animation */
+.react-flow__edge-default path,
+.react-flow__edge-bezier path {
+  stroke-dasharray: 6, 6;
+  animation: edgePulse 1.5s linear infinite;
+}
+
+/* Hierarchy edges (dashed connecting lines) - slower, more visible */
+.react-flow__edge-smoothstep path {
+  animation: edgeGlow 3s ease-in-out infinite;
+}
+
+/* Highlighted/hovered edges - faster, brighter pulse */
+.react-flow__edge.animated path {
+  stroke-dasharray: 8, 4 !important;
+  animation: edgePulse 0.8s linear infinite !important;
+}
+
+/* ===== DEEP LINK BUTTON ===== */
+.deep-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #60a5fa;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.deep-link-btn:hover {
+  background: rgba(59, 130, 246, 0.35);
+  border-color: #60a5fa;
+  color: #93c5fd;
+  transform: scale(1.15);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+/* ===== MINIMAP OVERRIDES ===== */
+.react-flow__minimap {
+  border-radius: 8px;
+}
+
+/* ===== CONTROLS OVERRIDES ===== */
+.react-flow__controls button {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #94a3b8 !important;
+}
+
+.react-flow__controls button:hover {
+  background-color: #334155 !important;
+  color: #e2e8f0 !important;
+}

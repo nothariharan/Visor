@@ -38,31 +38,32 @@ const CustomNode = ({ id, data, isConnectable }) => {
                     <div className={`absolute -top-1 -right-1 w-2 h-2 rounded-full ${healthColor} shadow-sm border border-slate-900`} title={`Health: ${healthScore}%`}></div>
                 </div>
                 <div className="flex-1 min-w-0">
-                    <div className="font-bold text-sm text-slate-200 truncate flex justify-between items-center group">
-                        <span>{label}</span>
-                        <a
-                            href={`vscode://file/${data.path || ''}`} // explicit path from data
-                            className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-400 transition-opacity"
-                            title="Open in VS Code"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <ExternalLink size={12} />
-                        </a>
-                        <button
-                            onClick={(e) => { e.stopPropagation(); setFocusedNode(id); }}
-                            className={`opacity-0 group-hover:opacity-100 transition-opacity ${isFocused ? 'text-blue-400 opacity-100' : 'text-slate-400 hover:text-blue-400'}`}
-                            title="Focus Mode"
-                        >
-                            <Eye size={12} />
-                        </button>
+                    <div className="font-bold text-sm text-slate-200 truncate">
+                        {label}
                     </div>
                     {git && (
-
                         <div className="text-[10px] text-slate-400 flex justify-between mt-1">
                             <span>{git.commits} commits</span>
                             {isHighChurn && <AlertCircle size={10} className="text-red-500 inline ml-1" />}
                         </div>
                     )}
+                </div>
+                <div className="flex items-center gap-1 ml-2">
+                    <a
+                        href={`vscode://file/${data.path || id}`}
+                        className="deep-link-btn"
+                        title="Open in VS Code"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <ExternalLink size={12} />
+                    </a>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setFocusedNode(id); }}
+                        className={`deep-link-btn ${isFocused ? '!bg-blue-500/30 !border-blue-400' : ''}`}
+                        title="Focus Mode"
+                    >
+                        <Eye size={12} />
+                    </button>
                 </div>
             </div>
 
