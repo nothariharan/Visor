@@ -62,12 +62,74 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             }
         }));
 
-        // 3. Dependencies
+        // 3. Dependencies - Enhanced with color-coded edges
+        // Edge color scheme by dependency type
+        const EDGE_COLORS = {
+            css: { stroke: '#38bdf8', label: 'CSS' },        // Sky blue
+            component: { stroke: '#34d399', label: 'Component' },  // Emerald
+            module: { stroke: '#fbbf24', label: 'Module' },     // Amber
+            utility: { stroke: '#a78bfa', label: 'Utility' },    // Violet
+            data: { stroke: '#fb923c', label: 'Data' },       // Orange
+            image: { stroke: '#f472b6', label: 'Asset' },      // Pink
+            dynamic: { stroke: '#c084fc', label: 'Dynamic' },    // Purple
+            circular: { stroke: '#ef4444', label: 'Circular!' },  // Red
+            default: { stroke: '#94a3b8', label: '' }            // Slate
+        };
+
+        // Classify a dependency by its module path
+        const classifyDep = (modulePath, depObj) => {
+            if (!modulePath) return 'default';
+            // Circular
+            if (depObj && depObj.circular) return 'circular';
+            // Dynamic import
+            if (depObj && depObj.dynamic) return 'dynamic';
+            // CSS/Style
+            if (/\.(css|scss|sass|less|styl)$/i.test(modulePath)) return 'css';
+            // Images/Assets
+            if (/\.(png|jpg|jpeg|gif|svg|webp|ico|bmp)$/i.test(modulePath)) return 'image';
+            // Data files
+            if (/\.(json|yaml|yml|toml|xml|csv)$/i.test(modulePath)) return 'data';
+            // React/Vue components (JSX/TSX or PascalCase)
+            if (/\.(jsx|tsx|vue)$/i.test(modulePath)) return 'component';
+            const basename = path.basename(modulePath).replace(/\.[^.]+$/, '');
+            if (/^[A-Z]/.test(basename)) return 'component';
+            // Utilities
+            if (/(util|helper|lib|service|hook|context|middleware|config)/i.test(modulePath)) return 'utility';
+            return 'module';
+        };
+
+        // Build a styled edge object
+        const createStyledEdge = (sourceId, targetId, depType, depObj) => {
+            const color = EDGE_COLORS[depType] || EDGE_COLORS.default;
+            const isDynamic = depType === 'dynamic';
+            const isCircular = depType === 'circular';
+            return {
+                id: `dep-${sourceId}-${targetId}`,
+                source: sourceId,
+                target: targetId,
+                type: 'default',
+                data: { depType, label: color.label },
+                style: {
+                    stroke: color.stroke,
+                    strokeWidth: isCircular ? 3 : 2,
+                    strokeDasharray: isDynamic ? '5,5' : isCircular ? '3,3' : undefined,
+                },
+                markerEnd: {
+                    type: 'arrowclosed',
+                    color: color.stroke,
+                    width: 16,
+                    height: 16
+                },
+                animated: isDynamic
+            };
+        };
+
+        // --- dependency-cruiser integration ---
         let cruiseModules = [];
         try {
             const { cruise } = await import("dependency-cruiser");
             const cruiseResult = await cruise([rootDir], {
-                exclude: `(node_modules|dist|build|coverage|test|spec)`,
+                exclude: `(node_modules|dist|build|coverage|test|spec|\\.git)`,
                 maxDepth: 4,
                 outputType: "json"
             });
@@ -75,7 +137,34 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             if (cruiseResult.output && cruiseResult.output.modules) {
                 cruiseModules = cruiseResult.output.modules;
             }
-        } catch (e) { console.warn("Dep cruise failed", e); }
+        } catch (e) { console.warn("Dep cruise failed, using fallback parser", e.message); }
+
+        // --- Fallback: lightweight import parser for files cruise missed ---
+        const IMPORT_REGEX = /(?:import\s+(?:[\w*{}\s,]+\s+from\s+)?['"]([^'"]+)['"]|require\s*\(\s*['"]([^'"]+)['"]\s*\))/g;
+
+        const parseFallbackImports = async (filePath) => {
+            const deps = [];
+            try {
+                const content = await fs.readFile(filePath, 'utf-8');
+                let match;
+                while ((match = IMPORT_REGEX.exec(content)) !== null) {
+                    const mod = match[1] || match[2];
+                    if (mod && mod.startsWith('.')) {
+                        // Resolve relative path
+                        const dir = path.dirname(filePath);
+                        const extensions = ['', '.js', '.jsx', '.ts', '.tsx', '.json', '.css'];
+                        for (const ext of extensions) {
+                            const resolved = path.resolve(dir, mod + ext);
+                            if (fs.existsSync(resolved)) {
+                                deps.push({ module: mod, resolved, depType: classifyDep(mod, null) });
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (e) { /* skip unreadable files */ }
+            return deps;
+        };
 
         // Find Visible Node Helper
         const sortedNodes = [...nodes].sort((a, b) => b.id.length - a.id.length);
@@ -89,8 +178,10 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             return null;
         };
 
-        // Aggregate Edges
+        // Aggregate Edges (with classification)
         const edgeSet = new Set();
+
+        // From dependency-cruiser results
         cruiseModules.forEach(mod => {
             const sourceNode = findVisibleNode(mod.source);
             if (!sourceNode) return;
@@ -99,15 +190,35 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                     const targetNode = findVisibleNode(dep.resolved);
                     if (!targetNode) return;
                     if (sourceNode.id !== targetNode.id) {
-                        const edgeId = `${sourceNode.id}-${targetNode.id}`;
-                        if (!edgeSet.has(edgeId)) {
-                            edgeSet.add(edgeId);
-                            edges.push({ id: edgeId, source: sourceNode.id, target: targetNode.id });
+                        const edgeKey = `${sourceNode.id}→${targetNode.id}`;
+                        if (!edgeSet.has(edgeKey)) {
+                            edgeSet.add(edgeKey);
+                            const depType = classifyDep(dep.module || dep.resolved, dep);
+                            edges.push(createStyledEdge(sourceNode.id, targetNode.id, depType, dep));
                         }
                     }
                 });
             }
         });
+
+        // Fallback for files not covered by cruise
+        const cruisedFiles = new Set(cruiseModules.map(m => path.resolve(m.source)));
+        await Promise.all(filesToScan.map(async (filePath) => {
+            if (cruisedFiles.has(filePath)) return; // Already handled
+            const deps = await parseFallbackImports(filePath);
+            const sourceNode = findVisibleNode(filePath);
+            if (!sourceNode) return;
+
+            for (const dep of deps) {
+                const targetNode = findVisibleNode(dep.resolved);
+                if (!targetNode || sourceNode.id === targetNode.id) continue;
+                const edgeKey = `${sourceNode.id}→${targetNode.id}`;
+                if (!edgeSet.has(edgeKey)) {
+                    edgeSet.add(edgeKey);
+                    edges.push(createStyledEdge(sourceNode.id, targetNode.id, dep.depType, null));
+                }
+            }
+        }));
 
         // 4. Build Hierarchy for ELK
         // Map nodes to Objects with children

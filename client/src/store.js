@@ -146,13 +146,16 @@ const useStore = create((set, get) => ({
             }
 
 
-            // Set initial styles for edges - hierarchy edges get bright style
-            const edgesWithStyle = (res.data.edges || []).map(e => ({
-                ...e,
-                style: e.id.startsWith('hierarchy-')
-                    ? { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' }
-                    : { ...e.style, opacity: 0.5, stroke: '#94a3b8' }
-            }));
+            // Set initial styles for edges
+            // Hierarchy edges: bright cyan dashed
+            // Dependency edges: keep server-sent color-coded styles
+            const edgesWithStyle = (res.data.edges || []).map(e => {
+                if (e.id.startsWith('hierarchy-')) {
+                    return { ...e, style: { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' } };
+                }
+                // dep-* edges already have style from server, just adjust opacity
+                return { ...e, style: { ...e.style, opacity: 0.6 } };
+            });
 
             set({
                 nodes: mergedNodes,
@@ -192,17 +195,19 @@ const useStore = create((set, get) => ({
 
         if (!nodeId) {
             // Reset styles
+            // Restore original edge styles (un-highlight)
             set({
                 edges: edges.map(edge => ({
                     ...edge,
-                    style: { stroke: '#b1b1b7', strokeWidth: 1, opacity: 0.4 },
+                    style: edge.id.startsWith('hierarchy-')
+                        ? { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' }
+                        : { ...edge.style, opacity: 0.6 },
                     animated: false
                 })),
                 nodes: nodes.map(node => ({
                     ...node,
                     style: { ...node.style, opacity: 1, filter: 'none', zIndex: 1 }
                 }))
-
             });
             return;
         }
@@ -224,14 +229,14 @@ const useStore = create((set, get) => ({
                 ...edge,
                 style: connectedEdgeIds.has(edge.id)
                     ? {
-                        stroke: '#2563eb',
-                        strokeWidth: 2,
+                        stroke: edge.style?.stroke || '#2563eb', // Preserve original color!
+                        strokeWidth: 3,
                         opacity: 1,
-                        strokeDasharray: edge.id.startsWith('hierarchy-') ? '5,5' : undefined
+                        strokeDasharray: edge.id.startsWith('hierarchy-') ? '5,5' : edge.style?.strokeDasharray,
+                        filter: 'drop-shadow(0 0 4px ' + (edge.style?.stroke || '#2563eb') + ')'
                     }
-                    : { stroke: '#e5e7eb', strokeWidth: 1, opacity: 0.2 },
+                    : { ...edge.style, strokeWidth: 1, opacity: 0.08 },
                 animated: connectedEdgeIds.has(edge.id)
-
             })),
             nodes: nodes.map(node => ({
                 ...node,

@@ -1,0 +1,1075 @@
+# VISOR: Implementing Dependency-Based Edge Connections
+
+## Problem Statement
+
+Currently, VISOR shows folder structures but doesn't visualize **dependency relationships** between files. We need to:
+
+1. **Parse import/require statements** from each file
+2. **Resolve module paths** (handle relative paths, aliases, node_modules)
+3. **Create edges** connecting dependent files
+4. **Color-code edges** by import type (CSS = blue, JS = yellow, React components = green, etc.)
+5. **Handle different file types** (HTML linking CSS/JS, JSX importing components, etc.)
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DEPENDENCY ANALYZER                       │
+├─────────────────────────────────────────────────────────────┤
+│                                                               │
+│  1. File Scanner                                              │
+│     ├─ Read file content                                     │
+│     └─ Detect file type (.html, .jsx, .css, .js)            │
+│                                                               │
+│  2. Import Extractor (per file type)                         │
+│     ├─ HTML Parser    → <link>, <script> tags               │
+│     ├─ CSS Parser     → @import statements                   │
+│     ├─ JS/JSX Parser  → import/require statements           │
+│     └─ Extract module paths                                  │
+│                                                               │
+│  3. Path Resolver                                             │
+│     ├─ Resolve relative paths (./Button.jsx)                │
+│     ├─ Resolve aliases (@/components/Button)                │
+│     ├─ Resolve node_modules (react, lodash)                 │
+│     └─ Handle file extensions (.jsx, .js, .ts)              │
+│                                                               │
+│  4. Edge Builder                                              │
+│     ├─ Create edge for each dependency                       │
+│     ├─ Classify import type                                  │
+│     ├─ Assign color based on type                            │
+│     └─ Detect circular dependencies                          │
+│                                                               │
+│  5. Output: Graph Data                                        │
+│     └─ { nodes: [...], edges: [...] }                       │
+│                                                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Implementation Strategy
+
+### Phase 1: Backend - Dependency Parsing
+
+#### Step 1.1: Install Required Libraries
+
+```bash
+# In your backend directory
+npm install @babel/parser @babel/traverse
+npm install parse5  # For HTML parsing
+npm install postcss postcss-import  # For CSS parsing
+npm install resolve  # For path resolution
+```
+
+**Why these libraries?**
+- `@babel/parser` - Parses JavaScript/JSX/TypeScript into AST (Abstract Syntax Tree)
+- `@babel/traverse` - Walks through AST to find import statements
+- `parse5` - Parses HTML to find `<link>` and `<script>` tags
+- `postcss` - Parses CSS to find `@import` statements
+- `resolve` - Resolves module paths like Node.js does
+
+---
+
+#### Step 1.2: Create Dependency Analyzer Module
+
+```javascript
+// server/analyzer/DependencyAnalyzer.js
+
+import fs from 'fs/promises';
+import path from 'path';
+import { parse as babelParse } from '@babel/parser';
+import traverse from '@babel/traverse';
+import { parse as htmlParse } from 'parse5';
+import postcss from 'postcss';
+import resolve from 'resolve';
+
+export class DependencyAnalyzer {
+  constructor(projectRoot, config) {
+    this.projectRoot = projectRoot;
+    this.config = config;
+    
+    // Cache for resolved paths
+    this.resolveCache = new Map();
+  }
+  
+  /**
+   * Main entry point - analyze all files and return graph
+   */
+  async analyzeProject() {
+    const files = await this.scanFiles(this.projectRoot);
+    
+    const nodes = [];
+    const edges = [];
+    
+    for (const filePath of files) {
+      // Create node
+      const node = await this.createNode(filePath);
+      nodes.push(node);
+      
+      // Extract dependencies
+      const dependencies = await this.extractDependencies(filePath);
+      
+      // Create edges
+      for (const dep of dependencies) {
+        const edge = this.createEdge(filePath, dep);
+        if (edge) edges.push(edge);
+      }
+    }
+    
+    return { nodes, edges };
+  }
+  
+  /**
+   * Extract dependencies based on file type
+   */
+  async extractDependencies(filePath) {
+    const ext = path.extname(filePath);
+    const content = await fs.readFile(filePath, 'utf-8');
+    
+    switch (ext) {
+      case '.html':
+        return this.parseHTML(content, filePath);
+      
+      case '.css':
+      case '.scss':
+      case '.less':
+        return this.parseCSS(content, filePath);
+      
+      case '.js':
+      case '.jsx':
+      case '.ts':
+      case '.tsx':
+        return this.parseJavaScript(content, filePath);
+      
+      default:
+        return [];
+    }
+  }
+  
+  /**
+   * Parse HTML files for <link> and <script> tags
+   */
+  parseHTML(content, filePath) {
+    const dependencies = [];
+    const document = htmlParse(content);
+    
+    const walk = (node) => {
+      if (node.tagName === 'link') {
+        // <link rel="stylesheet" href="styles.css">
+        const href = node.attrs?.find(a => a.name === 'href')?.value;
+        const rel = node.attrs?.find(a => a.name === 'rel')?.value;
+        
+        if (href) {
+          dependencies.push({
+            module: href,
+            type: rel === 'stylesheet' ? 'css' : 'resource',
+            importType: 'link-tag',
+            line: node.sourceCodeLocation?.startLine
+          });
+        }
+      }
+      
+      if (node.tagName === 'script') {
+        // <script src="app.js"></script>
+        const src = node.attrs?.find(a => a.name === 'src')?.value;
+        const type = node.attrs?.find(a => a.name === 'type')?.value;
+        
+        if (src) {
+          dependencies.push({
+            module: src,
+            type: type === 'module' ? 'es-module' : 'script',
+            importType: 'script-tag',
+            line: node.sourceCodeLocation?.startLine
+          });
+        }
+      }
+      
+      // Recursively walk children
+      if (node.childNodes) {
+        node.childNodes.forEach(walk);
+      }
+    };
+    
+    walk(document);
+    
+    return dependencies;
+  }
+  
+  /**
+   * Parse CSS files for @import statements
+   */
+  async parseCSS(content, filePath) {
+    const dependencies = [];
+    
+    try {
+      const result = await postcss().process(content, { from: filePath });
+      
+      result.root.walkAtRules('import', (rule) => {
+        // @import "other.css"
+        // @import url("other.css")
+        let importPath = rule.params.replace(/['"]/g, '').replace(/url\((.*)\)/, '$1').trim();
+        
+        dependencies.push({
+          module: importPath,
+          type: 'css',
+          importType: 'css-import',
+          line: rule.source?.start?.line
+        });
+      });
+    } catch (error) {
+      console.error(`Error parsing CSS ${filePath}:`, error.message);
+    }
+    
+    return dependencies;
+  }
+  
+  /**
+   * Parse JavaScript/JSX/TypeScript for import/require statements
+   */
+  parseJavaScript(content, filePath) {
+    const dependencies = [];
+    
+    try {
+      // Parse with Babel (supports JSX, TS, modern syntax)
+      const ast = babelParse(content, {
+        sourceType: 'module',
+        plugins: [
+          'jsx',
+          'typescript',
+          'classProperties',
+          'dynamicImport'
+        ]
+      });
+      
+      // Traverse AST to find import statements
+      traverse(ast, {
+        // import React from 'react'
+        // import { useState } from 'react'
+        // import * as Utils from './utils'
+        ImportDeclaration(path) {
+          const importPath = path.node.source.value;
+          const specifiers = path.node.specifiers;
+          
+          // Determine import type
+          let importType = 'named';
+          if (specifiers.some(s => s.type === 'ImportDefaultSpecifier')) {
+            importType = 'default';
+          } else if (specifiers.some(s => s.type === 'ImportNamespaceSpecifier')) {
+            importType = 'namespace';
+          }
+          
+          dependencies.push({
+            module: importPath,
+            type: this.classifyModule(importPath),
+            importType,
+            line: path.node.loc?.start?.line
+          });
+        },
+        
+        // const React = require('react')
+        CallExpression(path) {
+          if (path.node.callee.name === 'require' && 
+              path.node.arguments[0]?.type === 'StringLiteral') {
+            const requirePath = path.node.arguments[0].value;
+            
+            dependencies.push({
+              module: requirePath,
+              type: this.classifyModule(requirePath),
+              importType: 'require',
+              line: path.node.loc?.start?.line
+            });
+          }
+          
+          // import('dynamic-module')
+          if (path.node.callee.type === 'Import') {
+            const importPath = path.node.arguments[0]?.value;
+            
+            dependencies.push({
+              module: importPath,
+              type: this.classifyModule(importPath),
+              importType: 'dynamic',
+              line: path.node.loc?.start?.line
+            });
+          }
+        }
+      });
+      
+    } catch (error) {
+      console.error(`Error parsing JavaScript ${filePath}:`, error.message);
+    }
+    
+    return dependencies;
+  }
+  
+  /**
+   * Classify module type based on import path
+   */
+  classifyModule(modulePath) {
+    // CSS files
+    if (/\.(css|scss|sass|less)$/i.test(modulePath)) return 'css';
+    
+    // Image files
+    if (/\.(png|jpg|jpeg|gif|svg|webp)$/i.test(modulePath)) return 'image';
+    
+    // JSON/Data files
+    if (/\.(json|yaml|yml)$/i.test(modulePath)) return 'data';
+    
+    // Node modules (no ./ or ../)
+    if (!modulePath.startsWith('.') && !modulePath.startsWith('/')) {
+      return 'node_module';
+    }
+    
+    // React/Vue components (uppercase first letter or .jsx/.vue)
+    if (/\.(jsx|tsx|vue)$/i.test(modulePath) || /^[A-Z]/.test(path.basename(modulePath))) {
+      return 'component';
+    }
+    
+    // Utility/Helper files
+    if (/(util|helper|lib|service)/i.test(modulePath)) {
+      return 'utility';
+    }
+    
+    // Default: JavaScript module
+    return 'module';
+  }
+  
+  /**
+   * Resolve module path to absolute file path
+   */
+  async resolvePath(modulePath, fromFile) {
+    const cacheKey = `${fromFile}::${modulePath}`;
+    
+    // Check cache
+    if (this.resolveCache.has(cacheKey)) {
+      return this.resolveCache.get(cacheKey);
+    }
+    
+    let resolved = null;
+    
+    try {
+      // Handle different path types
+      if (modulePath.startsWith('.')) {
+        // Relative path: ./Button.jsx
+        resolved = await this.resolveRelativePath(modulePath, fromFile);
+      } else if (modulePath.startsWith('@/')) {
+        // Alias path: @/components/Button
+        resolved = await this.resolveAliasPath(modulePath);
+      } else {
+        // Node module: react, lodash
+        // For visualization, we might skip these or show as external
+        resolved = null;  // Or: { external: true, module: modulePath }
+      }
+    } catch (error) {
+      console.warn(`Could not resolve: ${modulePath} from ${fromFile}`);
+    }
+    
+    // Cache result
+    this.resolveCache.set(cacheKey, resolved);
+    
+    return resolved;
+  }
+  
+  /**
+   * Resolve relative paths (./Button.jsx, ../utils/format)
+   */
+  async resolveRelativePath(modulePath, fromFile) {
+    const dir = path.dirname(fromFile);
+    let resolved = path.resolve(dir, modulePath);
+    
+    // Try adding common extensions if file doesn't exist
+    const extensions = ['.js', '.jsx', '.ts', '.tsx', '.json', ''];
+    
+    for (const ext of extensions) {
+      const withExt = resolved + ext;
+      try {
+        await fs.access(withExt);
+        return withExt;  // File exists
+      } catch {
+        // Try next extension
+      }
+    }
+    
+    // Try index files in directory
+    const indexFiles = ['index.js', 'index.jsx', 'index.ts', 'index.tsx'];
+    for (const indexFile of indexFiles) {
+      const indexPath = path.join(resolved, indexFile);
+      try {
+        await fs.access(indexPath);
+        return indexPath;
+      } catch {
+        // Continue
+      }
+    }
+    
+    return null;  // Could not resolve
+  }
+  
+  /**
+   * Resolve alias paths (@/components/Button → src/components/Button)
+   */
+  async resolveAliasPath(modulePath) {
+    // Read tsconfig.json or jsconfig.json for path aliases
+    const tsconfigPath = path.join(this.projectRoot, 'tsconfig.json');
+    const jsconfigPath = path.join(this.projectRoot, 'jsconfig.json');
+    
+    let config = null;
+    
+    try {
+      const tsconfigContent = await fs.readFile(tsconfigPath, 'utf-8');
+      config = JSON.parse(tsconfigContent);
+    } catch {
+      try {
+        const jsconfigContent = await fs.readFile(jsconfigPath, 'utf-8');
+        config = JSON.parse(jsconfigContent);
+      } catch {
+        // No config file found
+      }
+    }
+    
+    if (!config?.compilerOptions?.paths) {
+      return null;
+    }
+    
+    const paths = config.compilerOptions.paths;
+    const baseUrl = config.compilerOptions.baseUrl || '.';
+    
+    // Find matching alias
+    for (const [alias, targets] of Object.entries(paths)) {
+      const aliasPattern = alias.replace('/*', '');
+      
+      if (modulePath.startsWith(aliasPattern)) {
+        const relativePath = modulePath.replace(aliasPattern, '');
+        const targetPattern = targets[0].replace('/*', '');
+        const resolved = path.join(this.projectRoot, baseUrl, targetPattern, relativePath);
+        
+        return this.resolveRelativePath('./' + path.relative(path.dirname(resolved), resolved), resolved);
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Create edge from dependency information
+   */
+  async createEdge(fromFile, dependency) {
+    const resolvedPath = await this.resolvePath(dependency.module, fromFile);
+    
+    if (!resolvedPath) {
+      // Could not resolve - skip or create external node
+      return null;
+    }
+    
+    // Assign color based on dependency type
+    const edgeStyle = this.getEdgeStyle(dependency.type, dependency.importType);
+    
+    return {
+      id: `${fromFile}→${resolvedPath}`,
+      source: fromFile,
+      target: resolvedPath,
+      
+      // Metadata
+      type: dependency.type,
+      importType: dependency.importType,
+      line: dependency.line,
+      
+      // Styling
+      ...edgeStyle,
+      
+      // React Flow properties
+      animated: dependency.importType === 'dynamic',
+      label: dependency.importType === 'dynamic' ? '⚡ Dynamic' : ''
+    };
+  }
+  
+  /**
+   * Get edge styling based on dependency type
+   */
+  getEdgeStyle(type, importType) {
+    // Color scheme
+    const colors = {
+      css: '#3b82f6',           // Blue
+      module: '#eab308',        // Yellow
+      component: '#10b981',     // Green
+      utility: '#8b5cf6',       // Purple
+      image: '#ec4899',         // Pink
+      data: '#f97316',          // Orange
+      node_module: '#6b7280',   // Gray
+      script: '#fbbf24'         // Amber
+    };
+    
+    return {
+      style: {
+        stroke: colors[type] || '#888',
+        strokeWidth: 2,
+        strokeDasharray: importType === 'dynamic' ? '5,5' : '0'
+      },
+      markerEnd: {
+        type: 'arrowclosed',
+        color: colors[type] || '#888',
+        width: 20,
+        height: 20
+      }
+    };
+  }
+}
+```
+
+---
+
+### Phase 2: Integrate with Existing Backend
+
+#### Step 2.1: Modify File Watcher to Use Analyzer
+
+```javascript
+// server/watcher.js
+
+import { DependencyAnalyzer } from './analyzer/DependencyAnalyzer.js';
+
+class FileWatcher {
+  constructor(projectRoot, config) {
+    this.projectRoot = projectRoot;
+    this.config = config;
+    
+    // Add analyzer
+    this.analyzer = new DependencyAnalyzer(projectRoot, config);
+    
+    // ... existing code
+  }
+  
+  async recalculateGraph() {
+    console.log('[Graph] Analyzing dependencies...');
+    
+    // Use the analyzer
+    const { nodes, edges } = await this.analyzer.analyzeProject();
+    
+    // Run layout with edges
+    const positioned = await runLayout(nodes, edges);
+    
+    this.latestGraph = {
+      nodes: positioned,
+      edges,  // Now includes dependency edges!
+      timestamp: Date.now()
+    };
+    
+    console.log(`[Graph] ${nodes.length} nodes, ${edges.length} edges`);
+  }
+}
+```
+
+---
+
+### Phase 3: Frontend - Render Edges
+
+#### Step 3.1: Update React Flow Configuration
+
+```javascript
+// src/components/GraphCanvas.jsx
+
+import ReactFlow, { 
+  Background, 
+  Controls,
+  MarkerType 
+} from 'reactflow';
+
+export function GraphCanvas() {
+  const nodes = useGraphStore(state => state.nodes);
+  const edges = useGraphStore(state => state.edges);
+  
+  // Edge types
+  const edgeTypes = {
+    default: CustomEdge,
+  };
+  
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      edgeTypes={edgeTypes}
+      
+      // Important: Enable edge labels
+      defaultEdgeOptions={{
+        type: 'smoothstep',  // or 'default', 'straight', 'step'
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+        }
+      }}
+      
+      fitView
+      minZoom={0.1}
+      maxZoom={2}
+    >
+      <Background />
+      <Controls />
+      
+      {/* Add legend */}
+      <EdgeLegend />
+    </ReactFlow>
+  );
+}
+```
+
+#### Step 3.2: Create Custom Edge Component (Optional)
+
+```javascript
+// src/components/CustomEdge.jsx
+
+import { getBezierPath } from 'reactflow';
+
+export function CustomEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  data
+}) {
+  const [edgePath] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+  
+  return (
+    <>
+      <path
+        id={id}
+        className="react-flow__edge-path"
+        d={edgePath}
+        style={style}
+        markerEnd={markerEnd}
+      />
+      
+      {/* Optional: Add label */}
+      {data?.label && (
+        <text>
+          <textPath href={`#${id}`} startOffset="50%" textAnchor="middle">
+            {data.label}
+          </textPath>
+        </text>
+      )}
+    </>
+  );
+}
+```
+
+#### Step 3.3: Add Edge Legend
+
+```javascript
+// src/components/EdgeLegend.jsx
+
+export function EdgeLegend() {
+  const legendItems = [
+    { type: 'CSS', color: '#3b82f6', label: 'Stylesheets' },
+    { type: 'JS', color: '#eab308', label: 'JavaScript Modules' },
+    { type: 'Component', color: '#10b981', label: 'React Components' },
+    { type: 'Utility', color: '#8b5cf6', label: 'Utilities' },
+    { type: 'Image', color: '#ec4899', label: 'Assets' },
+    { type: 'Dynamic', color: '#888', label: 'Dynamic Imports', dashed: true }
+  ];
+  
+  return (
+    <div className="edge-legend">
+      <h4>Dependencies</h4>
+      {legendItems.map(item => (
+        <div key={item.type} className="legend-item">
+          <svg width="40" height="2">
+            <line
+              x1="0" y1="1" x2="40" y2="1"
+              stroke={item.color}
+              strokeWidth="2"
+              strokeDasharray={item.dashed ? "5,5" : "0"}
+            />
+          </svg>
+          <span>{item.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## Real-World Examples
+
+### Example 1: HTML File with CSS and JS
+
+**Input File:** `index.html`
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="./styles/main.css">
+  <link rel="stylesheet" href="./styles/theme.css">
+</head>
+<body>
+  <script src="./js/app.js"></script>
+  <script src="./js/utils.js"></script>
+</body>
+</html>
+```
+
+**Generated Edges:**
+```javascript
+[
+  {
+    source: "index.html",
+    target: "styles/main.css",
+    type: "css",
+    style: { stroke: "#3b82f6" }  // Blue
+  },
+  {
+    source: "index.html",
+    target: "styles/theme.css",
+    type: "css",
+    style: { stroke: "#3b82f6" }  // Blue
+  },
+  {
+    source: "index.html",
+    target: "js/app.js",
+    type: "script",
+    style: { stroke: "#fbbf24" }  // Amber
+  },
+  {
+    source: "index.html",
+    target: "js/utils.js",
+    type: "script",
+    style: { stroke: "#fbbf24" }  // Amber
+  }
+]
+```
+
+**Visual Result:**
+```
+        ┌─────────────┐
+        │ index.html  │
+        └─────┬───────┘
+              │
+    ┌─────────┼─────────┬─────────┐
+    │         │         │         │
+   [CSS]     [CSS]     [JS]     [JS]
+   Blue      Blue      Yellow   Yellow
+    │         │         │         │
+    ▼         ▼         ▼         ▼
+  main.css  theme.css app.js   utils.js
+```
+
+---
+
+### Example 2: React Component with Imports
+
+**Input File:** `App.jsx`
+```javascript
+import React from 'react';
+import { BrowserRouter } from 'react-router-dom';
+import Header from './components/Header';
+import Footer from './components/Footer';
+import { formatDate } from './utils/date';
+import './App.css';
+import logo from './assets/logo.png';
+
+function App() {
+  return (
+    <div>
+      <Header />
+      <Footer />
+    </div>
+  );
+}
+```
+
+**Generated Edges:**
+```javascript
+[
+  {
+    source: "App.jsx",
+    target: "node_modules/react",  // Could be filtered out
+    type: "node_module",
+    style: { stroke: "#6b7280" }  // Gray
+  },
+  {
+    source: "App.jsx",
+    target: "components/Header.jsx",
+    type: "component",
+    style: { stroke: "#10b981" }  // Green
+  },
+  {
+    source: "App.jsx",
+    target: "components/Footer.jsx",
+    type: "component",
+    style: { stroke: "#10b981" }  // Green
+  },
+  {
+    source: "App.jsx",
+    target: "utils/date.js",
+    type: "utility",
+    style: { stroke: "#8b5cf6" }  // Purple
+  },
+  {
+    source: "App.jsx",
+    target: "App.css",
+    type: "css",
+    style: { stroke: "#3b82f6" }  // Blue
+  },
+  {
+    source: "App.jsx",
+    target: "assets/logo.png",
+    type: "image",
+    style: { stroke: "#ec4899" }  // Pink
+  }
+]
+```
+
+**Visual Result:**
+```
+                    ┌──────────┐
+                    │ App.jsx  │
+                    └────┬─────┘
+                         │
+        ┌────────────────┼────────────────┬──────────────┐
+        │                │                │              │
+     [Green]          [Green]          [Purple]       [Blue]
+   Component        Component          Utility         CSS
+        │                │                │              │
+        ▼                ▼                ▼              ▼
+   Header.jsx       Footer.jsx       date.js        App.css
+```
+
+---
+
+## Optimization Strategies
+
+### Strategy 1: Filter External Dependencies
+
+Don't show `node_modules` by default - they clutter the graph:
+
+```javascript
+// Backend: When creating edges
+async createEdge(fromFile, dependency) {
+  const resolvedPath = await this.resolvePath(dependency.module, fromFile);
+  
+  // Skip node_modules
+  if (dependency.type === 'node_module' && !this.config.showNodeModules) {
+    return null;
+  }
+  
+  // ... rest of code
+}
+```
+
+### Strategy 2: Hierarchical Edge Bundling
+
+For files with many dependencies, group edges:
+
+```javascript
+// Frontend: Group edges by type
+const groupedEdges = edges.reduce((acc, edge) => {
+  const key = `${edge.source}_${edge.type}`;
+  if (!acc[key]) acc[key] = [];
+  acc[key].push(edge);
+  return acc;
+}, {});
+
+// Show count badge instead of individual edges
+{Object.entries(groupedEdges).map(([key, edges]) => {
+  if (edges.length > 5) {
+    return <EdgeBundle edges={edges} />;
+  }
+  return edges.map(e => <Edge {...e} />);
+})}
+```
+
+### Strategy 3: Progressive Disclosure
+
+Only show edges when hovering:
+
+```javascript
+// This matches your current hover-to-preview logic!
+
+const visibleEdges = useMemo(() => {
+  if (!hoveredNode) {
+    return [];  // No edges shown by default
+  }
+  
+  // Show only edges connected to hovered node
+  return edges.filter(edge => 
+    edge.source === hoveredNode || edge.target === hoveredNode
+  );
+}, [hoveredNode, edges]);
+
+<ReactFlow edges={visibleEdges} />
+```
+
+---
+
+## Configuration Options
+
+Add to `visor.config.js`:
+
+```javascript
+export default {
+  dependencies: {
+    // What to show
+    showNodeModules: false,        // Hide npm packages
+    showDevDependencies: false,    // Hide jest, webpack, etc.
+    showTypeImports: true,         // Show TypeScript type imports
+    showDynamicImports: true,      // Show import() calls
+    
+    // Filtering
+    ignorePatterns: [
+      'react',                     // Ignore specific modules
+      'react-dom',
+      '*.test.js',
+      '*.spec.ts'
+    ],
+    
+    // Visual
+    edgeAnimation: true,           // Pulse animation
+    edgeLabels: false,             // Show import names on edges
+    bundleThreshold: 5,            // Bundle if >5 edges of same type
+    
+    // Colors (override defaults)
+    colors: {
+      css: '#3b82f6',
+      component: '#10b981',
+      // ...
+    }
+  }
+};
+```
+
+---
+
+## Testing Your Implementation
+
+### Test 1: Simple HTML Project
+```
+project/
+├── index.html  (links to style.css and app.js)
+├── style.css
+└── app.js
+
+Expected: 2 edges from index.html
+```
+
+### Test 2: React App
+```
+project/
+├── App.jsx     (imports Header, Footer, utils)
+├── Header.jsx
+├── Footer.jsx
+└── utils.js
+
+Expected: 3 edges from App.jsx
+```
+
+### Test 3: Circular Dependencies
+```
+A.js imports B.js
+B.js imports A.js
+
+Expected: 2 edges, marked as circular (orange, dashed)
+```
+
+---
+
+## Common Issues & Solutions
+
+### Issue 1: "Edges not appearing"
+**Debug:**
+```javascript
+// In backend, log edges before sending
+console.log('Generated edges:', edges.length);
+edges.forEach(e => console.log(`  ${e.source} → ${e.target}`));
+```
+
+### Issue 2: "Path resolution failing"
+**Debug:**
+```javascript
+// Add verbose logging to resolvePath
+console.log(`Resolving: ${modulePath} from ${fromFile}`);
+console.log(`Tried extensions:`, extensions);
+console.log(`Result:`, resolved);
+```
+
+### Issue 3: "Too many edges (graph is cluttered)"
+**Solution:** Use progressive disclosure
+```javascript
+// Only show edges for selected node
+const activeEdges = selectedNode 
+  ? edges.filter(e => e.source === selectedNode || e.target === selectedNode)
+  : [];
+```
+
+---
+
+## Performance Considerations
+
+### Parsing Performance
+- **Caching:** Only re-parse files that changed (use file hash)
+- **Async:** Parse files in parallel with `Promise.all`
+- **Incremental:** When file changes, only re-analyze that file's dependencies
+
+```javascript
+// Parallel parsing
+const dependencies = await Promise.all(
+  files.map(file => this.extractDependencies(file))
+);
+```
+
+### Rendering Performance
+- **Virtual Edges:** Only render edges in viewport
+- **Throttling:** Debounce edge updates during rapid changes
+- **Simplification:** Bundle similar edges into one thick edge
+
+---
+
+## Final Implementation Checklist
+
+Backend:
+- [ ] Install parsing libraries (babel, parse5, postcss)
+- [ ] Create `DependencyAnalyzer.js`
+- [ ] Integrate with file watcher
+- [ ] Test HTML parsing
+- [ ] Test JavaScript parsing
+- [ ] Test CSS parsing
+- [ ] Test path resolution
+- [ ] Add caching for resolved paths
+
+Frontend:
+- [ ] Update graph store to handle edges
+- [ ] Configure React Flow edge rendering
+- [ ] Add edge color styling
+- [ ] Create edge legend component
+- [ ] Test edge visibility
+- [ ] Add hover-to-show edges logic
+- [ ] Add configuration UI
+
+---
+
+## Summary
+
+**What you need to do:**
+
+1. **Install libraries** (5 min)
+2. **Copy `DependencyAnalyzer.js`** to your backend (15 min)
+3. **Integrate with file watcher** (10 min)
+4. **Test with your current project** (20 min)
+5. **Add edge styling** in frontend (15 min)
+6. **Add legend** (10 min)
+
+**Total time:** ~1.5 hours
+
+**Result:** Your VISOR will now show beautiful, color-coded dependency edges that match how files actually interact in your codebase!
+
+The edges will appear automatically when you expand folders, and you can use the hover-to-preview pattern you already have to show/hide them selectively.
