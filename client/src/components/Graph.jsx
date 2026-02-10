@@ -11,7 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 
 
-import { Loader2, Zap, LayoutGrid, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Zap, LayoutGrid, Eye, EyeOff, Rocket, Star } from 'lucide-react';
 import 'reactflow/dist/style.css';
 import useStore from '../store';
 import CustomNode from './CustomNode';
@@ -120,9 +120,9 @@ const GraphContent = () => {
                             {organizeStats.critical} <span className="text-slate-400 font-normal">/ {organizeStats.total} files</span>
                         </span>
                         <span className="text-slate-600">|</span>
-                        <span className="text-emerald-400">🚀 {organizeStats.entryPoints} entry</span>
+                        <span className="text-emerald-400 flex items-center gap-1"><Rocket size={13} /> {organizeStats.entryPoints} entry</span>
                         <span className="text-slate-600">|</span>
-                        <span className="text-violet-400">⭐ {organizeStats.centralNodes} core</span>
+                        <span className="text-violet-400 flex items-center gap-1"><Star size={13} /> {organizeStats.centralNodes} core</span>
                         <span className="text-slate-600">|</span>
                         <span className="text-slate-400">
                             <EyeOff size={13} className="inline mr-1" />

@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 
-import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye } from 'lucide-react';
+import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye, Rocket, Star } from 'lucide-react';
 import useStore from '../store';
 
 
@@ -40,14 +40,14 @@ const CustomNode = ({ id, data, isConnectable }) => {
         <div className={`px-4 py-2 shadow-md rounded-md bg-slate-800 border-2 ${borderColor} ${glow} min-w-[180px] relative`}>
             {/* Entry Point Badge */}
             {isEntryPoint && (
-                <div className="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white shadow-md z-10">
-                    🚀 Entry
+                <div className="absolute -top-2.5 -right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white shadow-md z-10">
+                    <Rocket size={9} /> Entry
                 </div>
             )}
             {/* Core Module Badge */}
             {isCentral && !isEntryPoint && (
-                <div className="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-white shadow-md z-10">
-                    ⭐ Core
+                <div className="absolute -top-2.5 -right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-white shadow-md z-10">
+                    <Star size={9} /> Core
                 </div>
             )}
             <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500" />

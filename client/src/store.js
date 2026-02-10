@@ -126,12 +126,11 @@ const useStore = create((set, get) => ({
         const centralNodes = centrality.slice(0, topN).map(c => c.id);
         centralNodes.forEach(id => critical.add(id));
 
-        // 4. Add parent folders of critical files so container structure is preserved
+        // 4. Directories are NEVER hidden - they're structural navigation
+        // (users need folders to expand and explore the codebase)
         nodes.forEach(n => {
             if (n.type === 'folder') {
-                // Check if any critical file is inside this folder
-                const hasCriticalChild = [...critical].some(cId => cId.startsWith(n.id));
-                if (hasCriticalChild) critical.add(n.id);
+                critical.add(n.id);
             }
         });
 
@@ -146,18 +145,22 @@ const useStore = create((set, get) => ({
             return 'Execution Path';
         };
 
+        // Stats only count source files (not folders or non-code)
+        const criticalSourceCount = [...critical].filter(id => sourceNodes.some(n => n.id === id)).length;
+
         set({
             organizeMode: 'critical',
             organizeStats: {
-                total: fileNodes.length,
-                critical: [...critical].filter(id => fileNodes.some(n => n.id === id)).length,
-                hidden: fileNodes.length - [...critical].filter(id => fileNodes.some(n => n.id === id)).length,
+                total: sourceNodes.length,
+                critical: criticalSourceCount,
+                hidden: sourceNodes.length - criticalSourceCount,
                 entryPoints: entryPoints.length,
                 centralNodes: centralNodes.length
             },
             nodes: nodes.map(n => ({
                 ...n,
-                hidden: !critical.has(n.id),
+                // Never hide folders; only hide non-critical file nodes
+                hidden: n.type === 'folder' ? false : !critical.has(n.id),
                 data: {
                     ...n.data,
                     isEntryPoint: isEntrySet.has(n.id),
