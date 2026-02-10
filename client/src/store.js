@@ -14,6 +14,9 @@ const useStore = create((set, get) => ({
     organizeStats: null,  // { total, critical, hidden, entryPoints, centralNodes }
     editingFile: null, // { path: string, content: string, originalContent: string }
     isSaving: false,
+    activeRunDir: null, // Absolute path to directory for RunControls detection (null = project root)
+
+    setActiveRunDir: (dir) => set({ activeRunDir: dir }),
 
     // ===== ORGANIZE: Critical Path Filter (100% client-side) =====
     organizeGraph: (mode) => {

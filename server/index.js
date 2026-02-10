@@ -156,11 +156,13 @@ processRunner.on('output', (data) => io.emit('process:output', data));
 processRunner.on('exit', (data) => io.emit('process:exit', data));
 processRunner.on('error', (data) => io.emit('process:error', data));
 
-// API: Detect project
+// API: Detect project (accepts optional ?path= for subdirectory detection)
 app.get('/api/project/detect', async (req, res) => {
     try {
-        const detector = new ProjectDetector(ROOT_DIR);
+        const targetDir = req.query.path || ROOT_DIR;
+        const detector = new ProjectDetector(targetDir);
         const result = await detector.detect();
+        result.cwd = targetDir; // Tell frontend which dir was detected
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -169,9 +171,9 @@ app.get('/api/project/detect', async (req, res) => {
 
 // API: Process Control
 app.post('/api/process/start', async (req, res) => {
-    const { id, command } = req.body;
+    const { id, command, cwd } = req.body;
     try {
-        const result = processRunner.start(id || 'default', command, ROOT_DIR);
+        const result = processRunner.start(id || 'default', command, cwd || ROOT_DIR);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -190,11 +192,14 @@ app.post('/api/process/restart', async (req, res) => {
     res.json({ success: restarted });
 });
 
-app.get('/api/process/status/:id?', (req, res) => {
+const statusHandler = (req, res) => {
     const id = req.params.id || 'default';
     const status = processRunner.getStatus(id);
     res.json(status);
-});
+};
+
+app.get('/api/process/status/:id', statusHandler);
+app.get('/api/process/status', statusHandler);
 
 app.get('/api/process/list', (req, res) => {
     res.json(processRunner.listProcesses());

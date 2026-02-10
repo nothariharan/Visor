@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import { Play, Square, RefreshCw, Trash2, ExternalLink, Activity, Terminal } from 'lucide-react';
+import useStore from '../store';
 import '../styles/run-controls.css';
 
 export default function RunControls() {
+    const { activeRunDir } = useStore(); // Get selected directory
     const [projectInfo, setProjectInfo] = useState(null);
     const [processStatus, setProcessStatus] = useState('stopped'); // stopped, starting, running, stopping, error
     const [output, setOutput] = useState([]);
@@ -14,9 +16,16 @@ export default function RunControls() {
     const outputRef = useRef(null);
     const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
 
-    // Detect project on mount
+    // Detect project on mount OR when activeRunDir changes
     useEffect(() => {
-        fetch('/api/project/detect')
+        // Reset while loading new dir info, unless it's just initial load
+        if (activeRunDir) setProjectInfo(null);
+
+        const url = activeRunDir
+            ? `/api/project/detect?path=${encodeURIComponent(activeRunDir)}`
+            : '/api/project/detect';
+
+        fetch(url)
             .then(res => res.json())
             .then(info => {
                 setProjectInfo(info);
@@ -25,7 +34,7 @@ export default function RunControls() {
                 if (primary) setSelectedCommand(primary);
             })
             .catch(err => console.error("Project detection failed:", err));
-    }, []);
+    }, [activeRunDir]);
 
     // Check status on mount in case already running (e.g. refresh)
     useEffect(() => {
@@ -102,7 +111,8 @@ export default function RunControls() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: 'default',
-                    command: selectedCommand.command
+                    command: selectedCommand.command,
+                    cwd: activeRunDir // Run in selected directory
                 })
             });
             const data = await res.json();
@@ -159,7 +169,11 @@ export default function RunControls() {
     };
 
     if (!projectInfo) {
-        return null; // Invisible until loaded
+        return (
+            <div className="fixed bottom-4 right-4 bg-slate-800 text-slate-400 text-xs px-3 py-2 rounded shadow-lg border border-slate-700 animate-pulse">
+                Detecting Project...
+            </div>
+        );
     }
 
     // Minimized State

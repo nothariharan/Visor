@@ -5,12 +5,13 @@ import useStore from '../store';
 
 const FolderNode = ({ id, data, isConnectable }) => {
     const { label } = data;
-    const { toggleFolder, expandedFolders } = useStore();
+    const { toggleFolder, expandedFolders, setActiveRunDir } = useStore();
     const isExpanded = expandedFolders.has(id);
 
     const handleClick = (e) => {
         e.stopPropagation(); // Prevent canvas click
         toggleFolder(id);
+        setActiveRunDir(id); // Update RunControls to detect this directory
     };
 
     // Group/Container Style for Expanded Folders
