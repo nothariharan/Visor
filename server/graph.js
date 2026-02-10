@@ -270,6 +270,21 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 } else {
                     // Keep file inside container
                     parentNode.children.push(elkNode);
+
+                    // Add containment edge (visible when file is dragged outside)
+                    const containEdgeId = `contain-${parentDir}-${n.id}`;
+                    if (!edgeSet.has(containEdgeId)) {
+                        edgeSet.add(containEdgeId);
+                        edges.push({
+                            id: containEdgeId,
+                            source: parentDir,
+                            target: n.id,
+                            type: 'smoothstep',
+                            style: { stroke: '#475569', strokeWidth: 1, strokeDasharray: '4,4', opacity: 0 },
+                            animated: false,
+                            data: { depType: 'containment' }
+                        });
+                    }
                 }
             } else {
                 // Top level visible node (or orphan)
@@ -309,7 +324,7 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                     position: { x: elkNode.x, y: elkNode.y },
                     style: { width: elkNode.width, height: elkNode.height }, // ELK calculates size for containers!
                     parentNode: parentId, // React Flow Parent
-                    extent: parentId ? 'parent' : undefined,
+                    extent: undefined, // Allow dragging outside parent
                     data: { ...originalNode.data, width: elkNode.width, height: elkNode.height }
                 });
             }

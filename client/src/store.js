@@ -173,9 +173,60 @@ const useStore = create((set, get) => ({
 
 
     onNodesChange: (changes) => {
-        set({
-            nodes: applyNodeChanges(changes, get().nodes),
-        });
+        const updatedNodes = applyNodeChanges(changes, get().nodes);
+
+        // Check if any position changes move a child outside its parent
+        const hasDrag = changes.some(c => c.type === 'position' && c.dragging);
+
+        if (hasDrag) {
+            const edges = get().edges;
+            const nodeMap = new Map(updatedNodes.map(n => [n.id, n]));
+            let edgesChanged = false;
+
+            const updatedEdges = edges.map(edge => {
+                if (!edge.id.startsWith('contain-')) return edge;
+
+                // Find the child node (target) and parent node (source)
+                const childNode = nodeMap.get(edge.target);
+                const parentNode = nodeMap.get(edge.source);
+
+                if (!childNode || !parentNode) return edge;
+
+                // Check if child is outside parent bounds
+                const parentW = parentNode.style?.width || parentNode.data?.width || 300;
+                const parentH = parentNode.style?.height || parentNode.data?.height || 200;
+                const cx = childNode.position.x;
+                const cy = childNode.position.y;
+
+                const isOutside = cx < -20 || cy < -20 ||
+                    cx > parentW - 50 || cy > parentH - 30;
+
+                const targetOpacity = isOutside ? 0.7 : 0;
+                const currentOpacity = edge.style?.opacity ?? 0;
+
+                if (currentOpacity !== targetOpacity) {
+                    edgesChanged = true;
+                    return {
+                        ...edge,
+                        style: {
+                            ...edge.style,
+                            opacity: targetOpacity,
+                            stroke: isOutside ? '#38bdf8' : '#475569',
+                            strokeWidth: isOutside ? 1.5 : 1
+                        }
+                    };
+                }
+                return edge;
+            });
+
+            if (edgesChanged) {
+                set({ nodes: updatedNodes, edges: updatedEdges });
+            } else {
+                set({ nodes: updatedNodes });
+            }
+        } else {
+            set({ nodes: updatedNodes });
+        }
     },
 
     onEdgesChange: (changes) => {
@@ -201,7 +252,9 @@ const useStore = create((set, get) => ({
                     ...edge,
                     style: edge.id.startsWith('hierarchy-')
                         ? { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' }
-                        : { ...edge.style, opacity: 0.6 },
+                        : edge.id.startsWith('contain-')
+                            ? { ...edge.style } // Preserve current containment visibility
+                            : { ...edge.style, opacity: 0.6 },
                     animated: false
                 })),
                 nodes: nodes.map(node => ({
