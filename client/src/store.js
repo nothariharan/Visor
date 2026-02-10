@@ -228,10 +228,9 @@ const useStore = create((set, get) => ({
             return;
         }
 
-        // Find relevant edges (excluding hierarchy/structure edges)
+        // Find relevant edges (including hierarchy/structure edges)
         edges.forEach(edge => {
-            if (edge.id.startsWith('hierarchy-')) return; // Ignore folder-child structure
-
+            // Include hierarchy edges in highlight logic
             if (edge.source === nodeId || edge.target === nodeId) {
                 connectedEdgeIds.add(edge.id);
                 connectedNodeIds.add(edge.source);
@@ -240,13 +239,20 @@ const useStore = create((set, get) => ({
         });
 
 
+
         set({
             edges: edges.map(edge => ({
                 ...edge,
                 style: connectedEdgeIds.has(edge.id)
-                    ? { stroke: '#2563eb', strokeWidth: 2, opacity: 1 }
+                    ? {
+                        stroke: '#2563eb',
+                        strokeWidth: 2,
+                        opacity: 1,
+                        strokeDasharray: edge.id.startsWith('hierarchy-') ? '5,5' : undefined
+                    }
                     : { stroke: '#e5e7eb', strokeWidth: 1, opacity: 0.2 },
                 animated: connectedEdgeIds.has(edge.id)
+
             })),
             nodes: nodes.map(node => ({
                 ...node,

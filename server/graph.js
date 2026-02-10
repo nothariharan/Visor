@@ -83,7 +83,8 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             const normalizedFile = path.resolve(filePath);
             for (const node of sortedNodes) {
                 if (node.type === 'custom' && node.id === normalizedFile) return node;
-                if (node.type === 'folder' && normalizedFile.startsWith(node.id)) return node;
+                // Strict path check to avoid partial name matching (e.g. server -> server_log.txt)
+                if (node.type === 'folder' && (normalizedFile.startsWith(node.id + path.sep))) return node;
             }
             return null;
         };
@@ -119,10 +120,10 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 children: [],
                 layoutOptions: n.type === 'folder' ? {
                     "elk.padding": "[top=60,left=30,bottom=30,right=30]",
-                    "elk.algorithm": "force", // Force inside folders for square-like arrangement
-                    "elk.force.iterations": "150",
-                    "elk.spacing.nodeNode": "60",
-                    "org.eclipse.elk.force.repulsion": "2.0"
+                    "elk.algorithm": "box",
+                    "elk.spacing.nodeNode": "40",
+                    "elk.box.packingMode": "GROUP_DEC",
+                    "elk.aspectRatio": "2.5" // Wide rectangle, not vertical column
                 } : undefined
 
             });
@@ -136,14 +137,35 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             const parentNode = nodeMap.get(parentDir);
             const elkNode = nodeMap.get(n.id);
 
-            // If we have a visible parent (expanded folder), add as child
+            // If we have a visible parent (expanded folder)
             if (parentNode && foldersToScan.has(parentDir)) {
-                parentNode.children.push(elkNode);
+                if (n.type === 'folder') {
+                    // Detach sub-folder -> Root Level + Connection Line
+                    rootChildren.push(elkNode);
+
+                    // Add hierarchy edge
+                    const edgeId = `hierarchy-${parentNode.id}-${n.id}`;
+                    if (!edgeSet.has(edgeId)) {
+                        edgeSet.add(edgeId);
+                        edges.push({
+                            id: edgeId,
+                            source: parentNode.id,
+                            target: n.id,
+                            type: 'smoothstep', // Distinct style for hierarchy?
+                            style: { stroke: '#64748b', strokeDasharray: '5,5' }, // Dashed line
+                            animated: false
+                        });
+                    }
+                } else {
+                    // Keep file inside container
+                    parentNode.children.push(elkNode);
+                }
             } else {
                 // Top level visible node (or orphan)
                 rootChildren.push(elkNode);
             }
         });
+
 
         // Add edges to graph. in ELK hierarchical, edges can reference any node id
         const elkEdges = edges.map(e => ({ id: e.id, sources: [e.source], targets: [e.target] }));
@@ -152,19 +174,12 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
         const rootGraph = {
             id: "root",
             layoutOptions: {
-                "elk.algorithm": "force",
+                "elk.algorithm": "box", // Packs nodes into horizontal rows
                 "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-                "elk.force.iterations": "300",
-                "elk.spacing.nodeNode": "100",
-                "org.eclipse.elk.force.repulsion": "4.0",
-                "elk.randomSeed": "123456", // Ensure deterministic layout
-                "elk.force.model": "EADES",
-                "elk.aspectRatio": "2.0", // Encourage horizontal spread
+                "elk.spacing.nodeNode": "60",
+                "elk.box.packingMode": "GROUP_DEC", // Pack largest first
+                "elk.aspectRatio": "2.5", // Wide rectangle
             },
-
-
-
-
             children: rootChildren,
             edges: elkEdges
         };
