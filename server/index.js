@@ -6,6 +6,8 @@ const path = require('path');
 const chokidar = require('chokidar');
 const { generateGraph, getCachedGraph } = require('./graph');
 const { getGitMetadata } = require('./git');
+const { ProjectDetector } = require('./project/ProjectDetector');
+const { ProcessRunner } = require('./runner/ProcessRunner');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -142,8 +144,65 @@ app.post('/api/search', async (req, res) => {
     }
 });
 
+// --- Process Runner, Socket.IO & APIs ---
+const server = require('http').createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(server, { cors: { origin: '*' } });
+
+const processRunner = new ProcessRunner();
+
+// Forward process output to WebSocket clients
+processRunner.on('output', (data) => io.emit('process:output', data));
+processRunner.on('exit', (data) => io.emit('process:exit', data));
+processRunner.on('error', (data) => io.emit('process:error', data));
+
+// API: Detect project
+app.get('/api/project/detect', async (req, res) => {
+    try {
+        const detector = new ProjectDetector(ROOT_DIR);
+        const result = await detector.detect();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// API: Process Control
+app.post('/api/process/start', async (req, res) => {
+    const { id, command } = req.body;
+    try {
+        const result = processRunner.start(id || 'default', command, ROOT_DIR);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/process/stop', async (req, res) => {
+    const { id } = req.body;
+    const stopped = processRunner.stop(id || 'default');
+    res.json({ success: stopped });
+});
+
+app.post('/api/process/restart', async (req, res) => {
+    const { id } = req.body;
+    const restarted = processRunner.restart(id || 'default');
+    res.json({ success: restarted });
+});
+
+app.get('/api/process/status/:id?', (req, res) => {
+    const id = req.params.id || 'default';
+    const status = processRunner.getStatus(id);
+    res.json(status);
+});
+
+app.get('/api/process/list', (req, res) => {
+    res.json(processRunner.listProcesses());
+});
+
 // SPA Catch-all (for client-side routing)
-app.get('*', (req, res) => {
+// Express 5 requires regex or named parameters for catch-all
+app.get(/.*/, (req, res) => {
     if (!req.path.startsWith('/api') && fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
         res.sendFile(path.join(__dirname, '../client/dist/index.html'));
     } else if (!req.path.startsWith('/api')) {
@@ -152,7 +211,7 @@ app.get('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, async () => {
+server.listen(PORT, async () => {
 
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`Analyzing project at ${ROOT_DIR}...`);

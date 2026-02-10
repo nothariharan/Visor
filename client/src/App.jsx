@@ -2,6 +2,7 @@ import React from 'react';
 import Graph from './components/Graph';
 import Search from './components/Search';
 import CodeEditor from './components/CodeEditor';
+import RunControls from './components/RunControls';
 
 
 function App() {
@@ -14,6 +15,7 @@ function App() {
       <Search />
       <Graph />
       <CodeEditor />
+      <RunControls />
     </div>
 
   );

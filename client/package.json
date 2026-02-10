@@ -20,6 +20,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "reactflow": "^11.11.4",
+    "socket.io-client": "^4.8.3",
     "tailwindcss": "^4.1.18",
     "zustand": "^5.0.11"
   },
