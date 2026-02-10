@@ -1,7 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 
-import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye, Rocket, Star } from 'lucide-react';
+import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye, Rocket, Star, Pencil } from 'lucide-react';
 import useStore from '../store';
 
 
@@ -14,7 +14,7 @@ const getIcon = (filename) => {
 
 const CustomNode = ({ id, data, isConnectable }) => {
     const { label, git, health, isEntryPoint, isCentral, criticalReason } = data;
-    const { focusedNode, setFocusedNode } = useStore();
+    const { focusedNode, setFocusedNode, openFile } = useStore();
     const isFocused = focusedNode === id;
 
 
@@ -69,6 +69,16 @@ const CustomNode = ({ id, data, isConnectable }) => {
                     )}
                 </div>
                 <div className="flex items-center gap-1 ml-2">
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            openFile(id, label);
+                        }}
+                        className="description-btn deep-link-btn !text-emerald-400 !bg-emerald-500/10 !border-emerald-500/30 hover:!bg-emerald-500/20 hover:!border-emerald-500"
+                        title="Edit Code in Visor"
+                    >
+                        <Pencil size={13} />
+                    </button>
                     <a
                         href={`vscode://file/${data.path || id}`}
                         className="deep-link-btn"

@@ -12,6 +12,8 @@ const useStore = create((set, get) => ({
     focusedNode: null,
     organizeMode: 'all', // 'all' | 'critical'
     organizeStats: null,  // { total, critical, hidden, entryPoints, centralNodes }
+    editingFile: null, // { path: string, content: string, originalContent: string }
+    isSaving: false,
 
     // ===== ORGANIZE: Critical Path Filter (100% client-side) =====
     organizeGraph: (mode) => {
@@ -239,6 +241,47 @@ const useStore = create((set, get) => ({
                 };
             })
         });
+    },
+
+    // ===== File Editor Actions =====
+    openFile: async (path, label) => {
+        // Prevent opening if already open? Or just switch.
+        set({ editingFile: { path, label, content: '// Loading...', originalContent: '' } });
+        try {
+            const res = await axios.get('/api/files/content', { params: { path } });
+            set({ editingFile: { path, label, content: res.data.content, originalContent: res.data.content } });
+        } catch (err) {
+            console.error(err);
+            set({ editingFile: { path, label, content: '// Error loading file content: ' + err.message, originalContent: '' } });
+        }
+    },
+
+    closeFile: () => {
+        set({ editingFile: null });
+    },
+
+    updateFileContent: (newContent) => {
+        const current = get().editingFile;
+        if (current) {
+            set({ editingFile: { ...current, content: newContent } });
+        }
+    },
+
+    saveFile: async () => {
+        const current = get().editingFile;
+        if (!current) return;
+
+        set({ isSaving: true });
+        try {
+            await axios.post('/api/files/content', { path: current.path, content: current.content });
+            set({ editingFile: { ...current, originalContent: current.content } });
+            // Graph refresh will happen automatically via Chokidar -> API polling
+        } catch (err) {
+            console.error(err);
+            alert('Failed to save file: ' + err.message);
+        } finally {
+            set({ isSaving: false });
+        }
     },
 
     fetchGraph: async (isBackground = false, anchorNodeId = null) => {

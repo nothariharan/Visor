@@ -42,6 +42,41 @@ app.post('/api/graph', async (req, res) => {
     }
 });
 
+// File Content Endpoint for Code Editor
+app.get('/api/files/content', async (req, res) => {
+    try {
+        const { path: filePath } = req.query;
+        if (!filePath) return res.status(400).json({ error: 'Missing file path' });
+
+        // Resolve relative paths if needed, but usually we get full paths.
+        // If absolute, ensure it's inside ROOT_DIR for basic safety?
+        // For local dev tool, trust is implied, but let's check.
+        // Actually, node graph uses absolute paths. Let's trust it for now as it's a dev tool.
+
+        const content = await fs.readFile(filePath, 'utf-8');
+        res.json({ content });
+    } catch (error) {
+        console.error('Error reading file:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/files/content', async (req, res) => {
+    try {
+        const { path: filePath, content } = req.body;
+        if (!filePath || content === undefined) return res.status(400).json({ error: 'Missing file path or content' });
+
+        await fs.writeFile(filePath, content, 'utf-8');
+        console.log(`File saved: ${filePath}`);
+
+        // No need to manually trigger refresh, chokidar will catch it
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error writing file:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 // Git Metadata Endpoint
 app.get('/api/git', async (req, res) => {

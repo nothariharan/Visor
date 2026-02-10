@@ -1,6 +1,7 @@
 import React from 'react';
 import Graph from './components/Graph';
 import Search from './components/Search';
+import CodeEditor from './components/CodeEditor';
 
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
       </div>
       <Search />
       <Graph />
+      <CodeEditor />
     </div>
 
   );
