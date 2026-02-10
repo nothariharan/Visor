@@ -159,6 +159,7 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 "org.eclipse.elk.force.repulsion": "4.0",
                 "elk.randomSeed": "123456", // Ensure deterministic layout
                 "elk.force.model": "EADES",
+                "elk.aspectRatio": "2.0", // Encourage horizontal spread
             },
 
 
