@@ -35,6 +35,24 @@ const useStore = create((set, get) => ({
         // --- Critical Path Algorithm ---
         const critical = new Set();
 
+        // Only source code files can be part of the critical path
+        const SOURCE_EXTENSIONS = /\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte)$/i;
+
+        // Files that are NEVER critical (config, data, docs, logs, etc.)
+        const NON_CRITICAL_PATTERNS = [
+            /\.(txt|md|log|csv|yml|yaml|toml|xml|lock)$/i,     // Data/doc files
+            /\.(json)$/i,                                        // JSON (package.json etc.)
+            /\.(png|jpg|jpeg|gif|svg|webp|ico|bmp|mp4|mp3)$/i,  // Assets
+            /\.(css|scss|sass|less|styl)$/i,                     // Stylesheets (not entry points)
+            /\.(env|env\..*)$/i,                                 // Environment files
+            /\.config\.(js|ts|mjs|cjs)$/i,                       // Config files (vite.config, etc.)
+            /visor\.config/i,                                     // Visor config
+            /package(-lock)?\.json$/i,                            // Package files
+            /tsconfig.*\.json$/i,                                 // TypeScript config
+            /\.eslintrc/i, /\.prettierrc/i, /\.babelrc/i,        // Linter/formatter config
+            /webpack\.config/i, /rollup\.config/i,                // Bundler configs
+        ];
+
         // 1. Find entry points
         const entryPatterns = [
             /index\.(js|jsx|ts|tsx|mjs|cjs)$/i,
@@ -53,16 +71,28 @@ const useStore = create((set, get) => ({
             /__tests__[/\\]/i,
             /__mocks__[/\\]/i,
             /\.d\.ts$/i,
+            /debug\.(js|ts)$/i,     // Debug scripts
         ];
+
+        const isSourceCode = (id) => SOURCE_EXTENSIONS.test(id) && !NON_CRITICAL_PATTERNS.some(p => p.test(id));
 
         const entryPoints = [];
         const fileNodes = nodes.filter(n => n.type === 'custom');
+        const sourceNodes = fileNodes.filter(n => isSourceCode(n.id));
 
-        fileNodes.forEach(node => {
+        sourceNodes.forEach(node => {
+            // Skip test/mock/debug files
+            if (supplementaryPatterns.some(p => p.test(node.id))) return;
+
             const isNamed = entryPatterns.some(p => p.test(node.id));
             const adj = adjacency[node.id];
             const hasNoImporters = !adj || adj.importedBy.length === 0;
-            if (isNamed || hasNoImporters) {
+            const hasImports = adj && adj.imports.length > 0;
+
+            // Named entry points always qualify
+            // Files with no importers only qualify if they import something
+            // (prevents orphan/unused files from being flagged)
+            if (isNamed || (hasNoImporters && hasImports)) {
                 entryPoints.push(node.id);
             }
         });
@@ -86,11 +116,13 @@ const useStore = create((set, get) => ({
             }
         }
 
-        // 3. High-centrality nodes (top N most-imported that aren't already critical)
-        const centrality = fileNodes
+        // 3. High-centrality nodes (only among SOURCE files)
+        const centrality = sourceNodes
+            .filter(n => !supplementaryPatterns.some(p => p.test(n.id)))
             .map(n => ({ id: n.id, score: adjacency[n.id]?.importedBy?.length || 0 }))
+            .filter(c => c.score > 0) // Must be imported by at least 1 file
             .sort((a, b) => b.score - a.score);
-        const topN = Math.max(3, Math.ceil(fileNodes.length * 0.05)); // top 5% or at least 3
+        const topN = Math.max(3, Math.ceil(sourceNodes.length * 0.05)); // top 5% or at least 3
         const centralNodes = centrality.slice(0, topN).map(c => c.id);
         centralNodes.forEach(id => critical.add(id));
 
