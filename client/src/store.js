@@ -78,7 +78,8 @@ const useStore = create((set, get) => ({
     },
 
     fetchGraph: async (isBackground = false, anchorNodeId = null) => {
-        if (!isBackground) {
+        if (!isBackground && !anchorNodeId) {
+            // Only show loading spinner on initial load, not folder toggles
             set({ loading: true, error: null });
         }
         try {
@@ -107,59 +108,35 @@ const useStore = create((set, get) => ({
                     return existingPos ? { ...newNode, position: existingPos } : newNode;
                 });
             } else if (oldAnchorNode && anchorNodeId) {
-                // Interactive Mode: Pin siblings, Update Anchor + Relatives
+                // Interactive Mode: User placement is KING
+                // ALL existing nodes keep their exact positions
+                // Only brand new nodes get positioned near the anchor
                 const currentNodes = get().nodes;
                 const oldNodeMap = new Map(currentNodes.map(n => [n.id, n]));
 
-                // Helper to check relationship
-                // A simplistic check assuming paths. 
-                // Adjust separator check for Windows ('\\') vs Posix ('/')
-                const isRelated = (id) => {
-                    if (id === anchorNodeId) return true;
-                    // Ancestor check (anchor starts with id)
-                    if (anchorNodeId.startsWith(id) && anchorNodeId.includes(id)) return true;
-                    // Descendant check (id starts with anchor)
-                    if (id.startsWith(anchorNodeId)) return true;
-                    return false;
-                };
-
-                // Calculate Anchor Shift (dx, dy)
-                // We want the Anchor Node's specific "Center" to remain constant
-                const newAnchorNode = incomingNodes.find(n => n.id === anchorNodeId);
-                let dx = 0, dy = 0;
-
-                if (newAnchorNode && oldAnchorNode) {
-                    const oldW = oldAnchorNode.data?.width || oldAnchorNode.width || 150;
-                    const oldH = oldAnchorNode.data?.height || oldAnchorNode.height || 60;
-                    const newW = newAnchorNode.data?.width || newAnchorNode.width || 150;
-                    const newH = newAnchorNode.data?.height || newAnchorNode.height || 60;
-
-                    const oldCenterX = oldAnchorNode.position.x + oldW / 2;
-                    const oldCenterY = oldAnchorNode.position.y + oldH / 2;
-                    const desiredX = oldCenterX - newW / 2;
-                    const desiredY = oldCenterY - newH / 2;
-
-                    dx = desiredX - newAnchorNode.position.x;
-                    dy = desiredY - newAnchorNode.position.y;
-                }
+                let newRootCount = 0; // Track new root nodes for stacking
 
                 mergedNodes = incomingNodes.map(newNode => {
                     const oldNode = oldNodeMap.get(newNode.id);
 
-                    // If Unrelated and Old Node exists -> PIN IT
-                    if (oldNode && !isRelated(newNode.id)) {
-                        return { ...newNode, position: oldNode.position, width: oldNode.width, height: oldNode.height };
+                    if (oldNode) {
+                        // Existing node: ALWAYS preserve user position, allow size to update
+                        return { ...newNode, position: oldNode.position };
                     }
 
-                    // If Related (or new) -> USE NEW (Server) + Anchor Shift if Root
+                    // Brand new node
                     if (!newNode.parentNode) {
+                        // New root-level node (detached sub-directory): place near anchor
+                        const anchorRight = oldAnchorNode.position.x + (oldAnchorNode.width || 250) + 100;
+                        const anchorY = oldAnchorNode.position.y + (newRootCount * 120);
+                        newRootCount++;
                         return {
                             ...newNode,
-                            position: { x: newNode.position.x + dx, y: newNode.position.y + dy }
+                            position: { x: anchorRight, y: anchorY }
                         };
                     }
 
-                    // Children of related nodes just take new relative pos
+                    // New child node (file inside folder): use ELK relative position
                     return newNode;
                 });
 
@@ -169,10 +146,12 @@ const useStore = create((set, get) => ({
             }
 
 
-            // Set initial opacity for edges
+            // Set initial styles for edges - hierarchy edges get bright style
             const edgesWithStyle = (res.data.edges || []).map(e => ({
                 ...e,
-                style: { ...e.style, opacity: 0.4, stroke: '#b1b1b7' }
+                style: e.id.startsWith('hierarchy-')
+                    ? { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' }
+                    : { ...e.style, opacity: 0.5, stroke: '#94a3b8' }
             }));
 
             set({
