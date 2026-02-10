@@ -1,0 +1,1219 @@
+# VISOR: Advanced Organization & Power User Features
+
+## Overview
+
+We'll implement several powerful features to give users control over their codebase visualization:
+
+1. **"Organize" Button** - Smart filtering to show only critical execution paths
+2. **Custom Grouping Boxes** - Manually organize nodes into visual containers
+3. **Additional Power Features** - Layers, bookmarks, annotations, etc.
+
+---
+
+## Feature 1: Smart Organization - "Show Only Critical Path"
+
+### Concept
+
+When user clicks "Organize", hide unnecessary files and show only:
+- **Entry points** (index.js, main.tsx, App.jsx)
+- **Files in the execution chain** (files that entry points import, recursively)
+- **Core utilities** (files imported by multiple modules)
+
+**Before Organize:**
+```
+150 files visible, messy hairball
+```
+
+**After Organize:**
+```
+20 critical files, clean dependency tree
+Entry → App → Routes → Components → Utilities
+```
+
+---
+
+### Implementation
+
+#### Step 1: Backend - Critical Path Algorithm
+
+```javascript
+// server/analyzer/CriticalPathAnalyzer.js
+
+export class CriticalPathAnalyzer {
+  constructor(graph) {
+    this.nodes = graph.nodes;
+    this.edges = graph.edges;
+    this.adjacencyList = this.buildAdjacencyList();
+  }
+  
+  buildAdjacencyList() {
+    const adj = {};
+    
+    this.nodes.forEach(node => {
+      adj[node.id] = { imports: [], importedBy: [] };
+    });
+    
+    this.edges.forEach(edge => {
+      adj[edge.source].imports.push(edge.target);
+      adj[edge.target].importedBy.push(edge.source);
+    });
+    
+    return adj;
+  }
+  
+  /**
+   * Identify critical files based on multiple criteria
+   */
+  findCriticalPath() {
+    const critical = new Set();
+    
+    // 1. Find entry points
+    const entryPoints = this.findEntryPoints();
+    entryPoints.forEach(id => critical.add(id));
+    
+    // 2. Traverse dependency tree from entry points (BFS)
+    const visited = new Set();
+    const queue = [...entryPoints];
+    
+    while (queue.length > 0) {
+      const nodeId = queue.shift();
+      
+      if (visited.has(nodeId)) continue;
+      visited.add(nodeId);
+      critical.add(nodeId);
+      
+      // Add all dependencies
+      const deps = this.adjacencyList[nodeId]?.imports || [];
+      deps.forEach(dep => {
+        // Skip test files, stories, mocks
+        if (this.isSupplementaryFile(dep)) return;
+        
+        queue.push(dep);
+      });
+    }
+    
+    // 3. Add high-centrality nodes (imported by many files)
+    const centralNodes = this.findCentralNodes(5);  // Top 5 most-imported
+    centralNodes.forEach(id => critical.add(id));
+    
+    return {
+      critical: Array.from(critical),
+      entryPoints,
+      centralNodes
+    };
+  }
+  
+  /**
+   * Find entry points (files with no importers or specific names)
+   */
+  findEntryPoints() {
+    const entryPoints = [];
+    
+    // Common entry point patterns
+    const entryPatterns = [
+      /index\.(js|jsx|ts|tsx)$/,
+      /main\.(js|jsx|ts|tsx)$/,
+      /App\.(js|jsx|ts|tsx)$/,
+      /app\.(js|jsx|ts|tsx)$/,
+      /_app\.(js|jsx|ts|tsx)$/,  // Next.js
+      /_document\.(js|jsx|ts|tsx)$/  // Next.js
+    ];
+    
+    this.nodes.forEach(node => {
+      const isNamedEntry = entryPatterns.some(pattern => pattern.test(node.id));
+      const hasNoImporters = (this.adjacencyList[node.id]?.importedBy.length || 0) === 0;
+      
+      if (isNamedEntry || hasNoImporters) {
+        entryPoints.push(node.id);
+      }
+    });
+    
+    return entryPoints;
+  }
+  
+  /**
+   * Find nodes with highest import count (centrality)
+   */
+  findCentralNodes(topN = 5) {
+    const centrality = this.nodes.map(node => ({
+      id: node.id,
+      score: this.adjacencyList[node.id]?.importedBy.length || 0
+    }));
+    
+    return centrality
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topN)
+      .map(n => n.id);
+  }
+  
+  /**
+   * Check if file is supplementary (test, story, mock, etc.)
+   */
+  isSupplementaryFile(filePath) {
+    const supplementaryPatterns = [
+      /\.test\.(js|jsx|ts|tsx)$/,
+      /\.spec\.(js|jsx|ts|tsx)$/,
+      /\.stories\.(js|jsx|ts|tsx)$/,
+      /\.mock\.(js|jsx|ts|tsx)$/,
+      /__tests__\//,
+      /__mocks__\//,
+      /\.d\.ts$/  // TypeScript declarations
+    ];
+    
+    return supplementaryPatterns.some(pattern => pattern.test(filePath));
+  }
+  
+  /**
+   * Apply critical path filter to graph
+   */
+  applyFilter(mode = 'critical') {
+    const { critical, entryPoints, centralNodes } = this.findCriticalPath();
+    
+    const filteredNodes = this.nodes.map(node => ({
+      ...node,
+      hidden: !critical.includes(node.id),
+      data: {
+        ...node.data,
+        isEntryPoint: entryPoints.includes(node.id),
+        isCentral: centralNodes.includes(node.id),
+        criticalReason: this.getCriticalReason(node.id, entryPoints, centralNodes)
+      }
+    }));
+    
+    const filteredEdges = this.edges.filter(edge => 
+      critical.includes(edge.source) && critical.includes(edge.target)
+    );
+    
+    return {
+      nodes: filteredNodes,
+      edges: filteredEdges,
+      stats: {
+        total: this.nodes.length,
+        critical: critical.length,
+        hidden: this.nodes.length - critical.length
+      }
+    };
+  }
+  
+  getCriticalReason(nodeId, entryPoints, centralNodes) {
+    if (entryPoints.includes(nodeId)) return 'Entry Point';
+    if (centralNodes.includes(nodeId)) return 'High Usage';
+    return 'In Execution Path';
+  }
+}
+```
+
+#### Step 2: Backend API Endpoint
+
+```javascript
+// server/index.js
+
+app.post('/api/graph/organize', express.json(), async (req, res) => {
+  const { mode } = req.body;  // 'critical', 'all', 'custom'
+  
+  try {
+    const graph = watcher.getLatestGraph();
+    const analyzer = new CriticalPathAnalyzer(graph);
+    
+    let result;
+    
+    switch (mode) {
+      case 'critical':
+        result = analyzer.applyFilter('critical');
+        break;
+      
+      case 'all':
+        result = graph;  // Show everything
+        break;
+      
+      default:
+        result = graph;
+    }
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('Error organizing graph:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+```
+
+#### Step 3: Frontend - Organize Button & UI
+
+```javascript
+// src/components/GraphToolbar.jsx
+
+import { useState } from 'react';
+import { useGraphStore } from '../stores/graphStore';
+
+export function GraphToolbar() {
+  const [organizing, setOrganizing] = useState(false);
+  const [mode, setMode] = useState('all');
+  const organizeGraph = useGraphStore(state => state.organizeGraph);
+  
+  const handleOrganize = async (newMode) => {
+    setOrganizing(true);
+    setMode(newMode);
+    
+    try {
+      const response = await fetch('/api/graph/organize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: newMode })
+      });
+      
+      const result = await response.json();
+      organizeGraph(result);
+      
+      // Show stats toast
+      if (newMode === 'critical') {
+        showToast(`Showing ${result.stats.critical} critical files (${result.stats.hidden} hidden)`);
+      }
+      
+    } finally {
+      setOrganizing(false);
+    }
+  };
+  
+  return (
+    <div className="graph-toolbar">
+      <div className="toolbar-section">
+        <label>View Mode:</label>
+        <div className="button-group">
+          <button
+            className={mode === 'all' ? 'active' : ''}
+            onClick={() => handleOrganize('all')}
+            disabled={organizing}
+          >
+            📊 Show All
+          </button>
+          
+          <button
+            className={mode === 'critical' ? 'active' : ''}
+            onClick={() => handleOrganize('critical')}
+            disabled={organizing}
+          >
+            ⚡ Organize (Critical Only)
+          </button>
+        </div>
+      </div>
+      
+      {mode === 'critical' && (
+        <div className="info-badge">
+          <span className="badge-icon">💡</span>
+          Showing execution path from entry points
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+#### Step 4: Visual Indicators for Critical Nodes
+
+```javascript
+// src/components/CustomNode.jsx
+
+export function CustomNode({ data }) {
+  const { isEntryPoint, isCentral, criticalReason } = data;
+  
+  return (
+    <div className={`node-card ${isEntryPoint ? 'entry-point' : ''}`}>
+      {/* Special badge for entry points */}
+      {isEntryPoint && (
+        <div className="node-badge entry">
+          🚀 Entry
+        </div>
+      )}
+      
+      {/* Special badge for central nodes */}
+      {isCentral && (
+        <div className="node-badge central">
+          ⭐ Core
+        </div>
+      )}
+      
+      {/* ... rest of node rendering */}
+      
+      {criticalReason && (
+        <div className="node-footer-tag">
+          {criticalReason}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+```css
+/* src/styles/nodes.css */
+
+.node-card.entry-point {
+  border: 2px solid #10b981;
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.3);
+}
+
+.node-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.node-badge.entry {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+}
+
+.node-badge.central {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+}
+```
+
+---
+
+## Feature 2: Custom Grouping Boxes
+
+### Concept
+
+Allow users to create visual containers and drag nodes into them for organization.
+
+**Use Cases:**
+- Group all authentication-related files
+- Separate frontend/backend in monorepo
+- Organize by feature (payments, user management, etc.)
+
+**Visual:**
+```
+┌─────────────────────────────────────┐
+│  📦 Authentication Module           │
+│  ┌─────────┐  ┌─────────┐          │
+│  │ Login   │  │ Signup  │          │
+│  └─────────┘  └─────────┘          │
+│  ┌─────────┐  ┌─────────┐          │
+│  │ Auth.js │  │ Token   │          │
+│  └─────────┘  └─────────┘          │
+└─────────────────────────────────────┘
+```
+
+---
+
+### Implementation
+
+#### Step 1: Backend - Save Group Configurations
+
+```javascript
+// server/groups/GroupManager.js
+
+import fs from 'fs/promises';
+import path from 'path';
+
+export class GroupManager {
+  constructor(projectRoot) {
+    this.projectRoot = projectRoot;
+    this.groupsFile = path.join(projectRoot, '.visor', 'groups.json');
+  }
+  
+  async loadGroups() {
+    try {
+      const content = await fs.readFile(this.groupsFile, 'utf-8');
+      return JSON.parse(content);
+    } catch {
+      return [];
+    }
+  }
+  
+  async saveGroups(groups) {
+    const visorDir = path.join(this.projectRoot, '.visor');
+    
+    // Create .visor directory if it doesn't exist
+    try {
+      await fs.mkdir(visorDir, { recursive: true });
+    } catch {}
+    
+    await fs.writeFile(
+      this.groupsFile,
+      JSON.stringify(groups, null, 2),
+      'utf-8'
+    );
+  }
+  
+  async createGroup(groupData) {
+    const groups = await this.loadGroups();
+    
+    const newGroup = {
+      id: `group-${Date.now()}`,
+      name: groupData.name,
+      color: groupData.color || '#3b82f6',
+      nodes: groupData.nodes || [],
+      position: groupData.position || { x: 0, y: 0 },
+      size: groupData.size || { width: 400, height: 300 },
+      collapsed: false,
+      createdAt: new Date().toISOString()
+    };
+    
+    groups.push(newGroup);
+    await this.saveGroups(groups);
+    
+    return newGroup;
+  }
+  
+  async updateGroup(groupId, updates) {
+    const groups = await this.loadGroups();
+    const index = groups.findIndex(g => g.id === groupId);
+    
+    if (index !== -1) {
+      groups[index] = { ...groups[index], ...updates };
+      await this.saveGroups(groups);
+      return groups[index];
+    }
+    
+    return null;
+  }
+  
+  async deleteGroup(groupId) {
+    const groups = await this.loadGroups();
+    const filtered = groups.filter(g => g.id !== groupId);
+    await this.saveGroups(filtered);
+  }
+  
+  async addNodeToGroup(groupId, nodeId) {
+    const groups = await this.loadGroups();
+    const group = groups.find(g => g.id === groupId);
+    
+    if (group && !group.nodes.includes(nodeId)) {
+      group.nodes.push(nodeId);
+      await this.saveGroups(groups);
+    }
+  }
+  
+  async removeNodeFromGroup(groupId, nodeId) {
+    const groups = await this.loadGroups();
+    const group = groups.find(g => g.id === groupId);
+    
+    if (group) {
+      group.nodes = group.nodes.filter(n => n !== nodeId);
+      await this.saveGroups(groups);
+    }
+  }
+}
+```
+
+#### Step 2: Backend API Endpoints
+
+```javascript
+// server/index.js
+
+const groupManager = new GroupManager(process.cwd());
+
+// Get all groups
+app.get('/api/groups', async (req, res) => {
+  const groups = await groupManager.loadGroups();
+  res.json(groups);
+});
+
+// Create new group
+app.post('/api/groups', express.json(), async (req, res) => {
+  const group = await groupManager.createGroup(req.body);
+  res.json(group);
+});
+
+// Update group
+app.put('/api/groups/:id', express.json(), async (req, res) => {
+  const group = await groupManager.updateGroup(req.params.id, req.body);
+  res.json(group);
+});
+
+// Delete group
+app.delete('/api/groups/:id', async (req, res) => {
+  await groupManager.deleteGroup(req.params.id);
+  res.json({ success: true });
+});
+
+// Add node to group
+app.post('/api/groups/:id/nodes', express.json(), async (req, res) => {
+  await groupManager.addNodeToGroup(req.params.id, req.body.nodeId);
+  res.json({ success: true });
+});
+
+// Remove node from group
+app.delete('/api/groups/:id/nodes/:nodeId', async (req, res) => {
+  await groupManager.removeNodeFromGroup(req.params.id, req.params.nodeId);
+  res.json({ success: true });
+});
+```
+
+#### Step 3: Frontend - Group Box Component
+
+```javascript
+// src/components/GroupBox.jsx
+
+import { useState } from 'react';
+import { Handle, Position } from 'reactflow';
+
+export function GroupBox({ data, id }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(data.name);
+  
+  const handleNameChange = () => {
+    setIsEditing(false);
+    data.onNameChange(id, name);
+  };
+  
+  return (
+    <div 
+      className="group-box"
+      style={{
+        border: `2px solid ${data.color}`,
+        background: `${data.color}10`,
+        width: data.width || 400,
+        height: data.height || 300
+      }}
+    >
+      {/* Header */}
+      <div 
+        className="group-header"
+        style={{ background: data.color }}
+      >
+        {isEditing ? (
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={handleNameChange}
+            onKeyDown={(e) => e.key === 'Enter' && handleNameChange()}
+            autoFocus
+          />
+        ) : (
+          <h3 onDoubleClick={() => setIsEditing(true)}>
+            📦 {data.name}
+          </h3>
+        )}
+        
+        <div className="group-actions">
+          <button onClick={() => data.onCollapse(id)}>
+            {data.collapsed ? '📂' : '📁'}
+          </button>
+          <button onClick={() => data.onDelete(id)}>
+            🗑️
+          </button>
+        </div>
+      </div>
+      
+      {/* Content area (nodes will be positioned here) */}
+      {!data.collapsed && (
+        <div className="group-content">
+          <div className="drop-zone">
+            Drop nodes here to group
+          </div>
+          <div className="group-stats">
+            {data.nodeCount} files
+          </div>
+        </div>
+      )}
+      
+      {/* Resize handle */}
+      <div className="resize-handle" />
+    </div>
+  );
+}
+```
+
+#### Step 4: Frontend - Group Creation UI
+
+```javascript
+// src/components/GroupControls.jsx
+
+import { useState } from 'react';
+import { useGraphStore } from '../stores/graphStore';
+
+export function GroupControls() {
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [groupColor, setGroupColor] = useState('#3b82f6');
+  
+  const createGroup = useGraphStore(state => state.createGroup);
+  
+  const handleCreate = async () => {
+    if (!groupName.trim()) return;
+    
+    await createGroup({
+      name: groupName,
+      color: groupColor,
+      position: { x: 100, y: 100 },
+      nodes: []
+    });
+    
+    setGroupName('');
+    setShowCreateForm(false);
+  };
+  
+  return (
+    <div className="group-controls">
+      <button 
+        className="create-group-btn"
+        onClick={() => setShowCreateForm(true)}
+      >
+        ➕ Create Group
+      </button>
+      
+      {showCreateForm && (
+        <div className="create-group-modal">
+          <h3>Create New Group</h3>
+          
+          <label>
+            Name:
+            <input
+              type="text"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder="e.g., Authentication Module"
+            />
+          </label>
+          
+          <label>
+            Color:
+            <input
+              type="color"
+              value={groupColor}
+              onChange={(e) => setGroupColor(e.target.value)}
+            />
+          </label>
+          
+          <div className="modal-actions">
+            <button onClick={handleCreate}>Create</button>
+            <button onClick={() => setShowCreateForm(false)}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+#### Step 5: Drag & Drop to Group
+
+```javascript
+// src/hooks/useNodeGrouping.js
+
+import { useCallback } from 'react';
+import { useGraphStore } from '../stores/graphStore';
+
+export function useNodeGrouping() {
+  const groups = useGraphStore(state => state.groups);
+  const addNodeToGroup = useGraphStore(state => state.addNodeToGroup);
+  
+  const handleNodeDragStop = useCallback((event, node) => {
+    const nodeRect = event.target.getBoundingClientRect();
+    
+    // Check if node is inside any group box
+    for (const group of groups) {
+      const groupRect = document
+        .querySelector(`[data-group-id="${group.id}"]`)
+        ?.getBoundingClientRect();
+      
+      if (!groupRect) continue;
+      
+      const isInside = (
+        nodeRect.left >= groupRect.left &&
+        nodeRect.right <= groupRect.right &&
+        nodeRect.top >= groupRect.top &&
+        nodeRect.bottom <= groupRect.bottom
+      );
+      
+      if (isInside) {
+        addNodeToGroup(group.id, node.id);
+        break;
+      }
+    }
+  }, [groups, addNodeToGroup]);
+  
+  return { handleNodeDragStop };
+}
+```
+
+---
+
+## Feature 3: Additional Power User Features
+
+### 3.1 Layer System (Vertical Separation)
+
+**Concept:** Organize nodes into logical layers (Presentation → Business Logic → Data)
+
+```javascript
+// src/components/LayerControls.jsx
+
+const LAYERS = [
+  { id: 'presentation', name: 'UI Layer', y: 0, color: '#3b82f6' },
+  { id: 'business', name: 'Business Logic', y: 400, color: '#8b5cf6' },
+  { id: 'data', name: 'Data Layer', y: 800, color: '#10b981' }
+];
+
+export function LayerControls() {
+  const assignToLayer = useGraphStore(state => state.assignToLayer);
+  const selectedNodes = useGraphStore(state => state.selectedNodes);
+  
+  return (
+    <div className="layer-controls">
+      <h4>Assign to Layer:</h4>
+      {LAYERS.map(layer => (
+        <button
+          key={layer.id}
+          onClick={() => assignToLayer(selectedNodes, layer.id)}
+          style={{ borderLeft: `4px solid ${layer.color}` }}
+        >
+          {layer.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Auto-assign logic
+function autoAssignLayers(nodes) {
+  return nodes.map(node => {
+    // UI components
+    if (/components?/i.test(node.id) || /\.jsx$/.test(node.id)) {
+      return { ...node, layer: 'presentation' };
+    }
+    
+    // Services/API
+    if (/services?|api/i.test(node.id)) {
+      return { ...node, layer: 'business' };
+    }
+    
+    // Models/Database
+    if (/models?|database|db/i.test(node.id)) {
+      return { ...node, layer: 'data' };
+    }
+    
+    return node;
+  });
+}
+```
+
+**Visual:**
+```
+┌────────────────────────────────┐
+│  UI Layer (Blue background)    │
+│  [Button] [Header] [Footer]    │
+└────────────────────────────────┘
+
+┌────────────────────────────────┐
+│  Business Logic (Purple bg)    │
+│  [AuthService] [PaymentAPI]    │
+└────────────────────────────────┘
+
+┌────────────────────────────────┐
+│  Data Layer (Green background) │
+│  [UserModel] [Database]        │
+└────────────────────────────────┘
+```
+
+---
+
+### 3.2 Bookmarks & Quick Navigation
+
+**Concept:** Save important views and jump between them
+
+```javascript
+// src/components/BookmarkBar.jsx
+
+export function BookmarkBar() {
+  const [bookmarks, setBookmarks] = useState([]);
+  const currentView = useGraphStore(state => state.viewport);
+  
+  const saveBookmark = () => {
+    const bookmark = {
+      id: Date.now(),
+      name: prompt('Bookmark name:'),
+      viewport: currentView,
+      timestamp: new Date().toISOString()
+    };
+    
+    setBookmarks([...bookmarks, bookmark]);
+    localStorage.setItem('visor-bookmarks', JSON.stringify(bookmarks));
+  };
+  
+  const jumpTo = (bookmark) => {
+    useGraphStore.getState().setViewport(bookmark.viewport);
+  };
+  
+  return (
+    <div className="bookmark-bar">
+      <button onClick={saveBookmark}>🔖 Save View</button>
+      
+      {bookmarks.map(bm => (
+        <button
+          key={bm.id}
+          onClick={() => jumpTo(bm)}
+          title={`Saved: ${new Date(bm.timestamp).toLocaleString()}`}
+        >
+          📍 {bm.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+### 3.3 Annotations & Comments
+
+**Concept:** Add notes to nodes or edges
+
+```javascript
+// src/components/AnnotationSystem.jsx
+
+export function NodeAnnotation({ nodeId }) {
+  const [notes, setNotes] = useState('');
+  const [showNotepad, setShowNotepad] = useState(false);
+  
+  return (
+    <div className="node-annotation">
+      <button onClick={() => setShowNotepad(!showNotepad)}>
+        📝 {notes ? '✓' : ''}
+      </button>
+      
+      {showNotepad && (
+        <div className="notepad">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Add notes about this file..."
+          />
+          <button onClick={() => saveNote(nodeId, notes)}>
+            Save
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+### 3.4 Minimap with Regions
+
+**Concept:** Overview map showing different regions
+
+```javascript
+// src/components/EnhancedMinimap.jsx
+
+import { MiniMap } from 'reactflow';
+
+export function EnhancedMinimap() {
+  const groups = useGraphStore(state => state.groups);
+  
+  return (
+    <MiniMap
+      nodeColor={(node) => {
+        // Color by group
+        const group = groups.find(g => g.nodes.includes(node.id));
+        return group?.color || '#888';
+      }}
+      maskColor="rgba(0, 0, 0, 0.6)"
+    />
+  );
+}
+```
+
+---
+
+### 3.5 Dependency Heat Map
+
+**Concept:** Color-code nodes by complexity/coupling
+
+```javascript
+// src/utils/heatmap.js
+
+export function calculateHeatMap(nodes, edges) {
+  const adjacency = buildAdjacencyList(edges);
+  
+  return nodes.map(node => {
+    const imports = adjacency[node.id]?.imports.length || 0;
+    const importedBy = adjacency[node.id]?.importedBy.length || 0;
+    
+    // Coupling score
+    const coupling = imports + importedBy;
+    
+    // Color gradient: Green → Yellow → Red
+    let color;
+    if (coupling < 5) color = '#10b981';       // Green (low)
+    else if (coupling < 15) color = '#f59e0b'; // Yellow (medium)
+    else color = '#ef4444';                    // Red (high)
+    
+    return {
+      ...node,
+      style: {
+        ...node.style,
+        background: color,
+        opacity: 0.3 + (coupling / 30) * 0.7  // More coupled = more opaque
+      }
+    };
+  });
+}
+```
+
+---
+
+### 3.6 Export & Share Views
+
+**Concept:** Export current graph as image or shareable link
+
+```javascript
+// src/components/ExportMenu.jsx
+
+import { toPng, toSvg } from 'react-to-image';
+
+export function ExportMenu() {
+  const graphRef = useRef();
+  
+  const exportAsPNG = () => {
+    toPng(graphRef.current)
+      .then((dataUrl) => {
+        const link = document.createElement('a');
+        link.download = 'visor-graph.png';
+        link.href = dataUrl;
+        link.click();
+      });
+  };
+  
+  const exportAsSVG = () => {
+    toSvg(graphRef.current)
+      .then((dataUrl) => {
+        const link = document.createElement('a');
+        link.download = 'visor-graph.svg';
+        link.href = dataUrl;
+        link.click();
+      });
+  };
+  
+  const shareView = async () => {
+    const viewState = {
+      viewport: useGraphStore.getState().viewport,
+      filters: useGraphStore.getState().activeFilters,
+      groups: useGraphStore.getState().groups
+    };
+    
+    const encoded = btoa(JSON.stringify(viewState));
+    const shareUrl = `${window.location.origin}?view=${encoded}`;
+    
+    await navigator.clipboard.writeText(shareUrl);
+    alert('Link copied to clipboard!');
+  };
+  
+  return (
+    <div className="export-menu">
+      <button onClick={exportAsPNG}>💾 Export PNG</button>
+      <button onClick={exportAsSVG}>💾 Export SVG</button>
+      <button onClick={shareView}>🔗 Share View</button>
+    </div>
+  );
+}
+```
+
+---
+
+### 3.7 Time-Travel (Git History Visualization)
+
+**Concept:** Show how architecture evolved over time
+
+```javascript
+// src/components/TimeTravelControls.jsx
+
+export function TimeTravelControls() {
+  const [commits, setCommits] = useState([]);
+  const [currentCommit, setCurrentCommit] = useState(null);
+  
+  useEffect(() => {
+    fetch('/api/git/history')
+      .then(res => res.json())
+      .then(setCommits);
+  }, []);
+  
+  const jumpToCommit = async (commitHash) => {
+    const response = await fetch(`/api/graph/at-commit/${commitHash}`);
+    const graph = await response.json();
+    
+    useGraphStore.getState().setGraph(graph);
+    setCurrentCommit(commitHash);
+  };
+  
+  return (
+    <div className="time-travel">
+      <h4>📅 History</h4>
+      <input
+        type="range"
+        min={0}
+        max={commits.length - 1}
+        onChange={(e) => jumpToCommit(commits[e.target.value].hash)}
+      />
+      
+      {currentCommit && (
+        <div className="commit-info">
+          Viewing: {commits.find(c => c.hash === currentCommit)?.message}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+### 3.8 AI-Powered Insights
+
+**Concept:** Let AI suggest improvements
+
+```javascript
+// src/components/AIInsights.jsx
+
+export function AIInsights() {
+  const [insights, setInsights] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  const analyzeArchitecture = async () => {
+    setLoading(true);
+    
+    const graph = useGraphStore.getState();
+    
+    const response = await fetch('/api/ai/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ graph })
+    });
+    
+    const result = await response.json();
+    setInsights(result.insights);
+    setLoading(false);
+  };
+  
+  return (
+    <div className="ai-insights">
+      <button onClick={analyzeArchitecture} disabled={loading}>
+        🤖 {loading ? 'Analyzing...' : 'Get AI Insights'}
+      </button>
+      
+      {insights.map((insight, i) => (
+        <div key={i} className={`insight ${insight.severity}`}>
+          <h5>{insight.title}</h5>
+          <p>{insight.description}</p>
+          
+          {insight.action && (
+            <button onClick={() => applyFix(insight.action)}>
+              Apply Fix
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Example backend AI analysis
+async function analyzeWithAI(graph) {
+  const insights = [];
+  
+  // Detect circular dependencies
+  const circular = detectCircular(graph.edges);
+  if (circular.length > 0) {
+    insights.push({
+      severity: 'high',
+      title: 'Circular Dependencies Detected',
+      description: `Found ${circular.length} circular dependency chains`,
+      action: { type: 'highlight', nodes: circular }
+    });
+  }
+  
+  // Detect god objects (files with too many connections)
+  const godObjects = graph.nodes.filter(n => 
+    n.data.imports + n.data.importedBy > 20
+  );
+  
+  if (godObjects.length > 0) {
+    insights.push({
+      severity: 'medium',
+      title: 'High Coupling Detected',
+      description: `${godObjects.length} files have excessive dependencies`,
+      action: { type: 'suggest-split', nodes: godObjects }
+    });
+  }
+  
+  return { insights };
+}
+```
+
+---
+
+## Complete Feature Summary
+
+| Feature | Description | Complexity | Impact |
+|---------|-------------|------------|---------|
+| **Organize Button** | Show only critical execution paths | Medium | High - Reduces clutter dramatically |
+| **Grouping Boxes** | Manual node organization | High | High - Allows custom layouts |
+| **Layer System** | Vertical separation (UI/Logic/Data) | Low | Medium - Improves clarity |
+| **Bookmarks** | Save and jump to views | Low | Medium - Better navigation |
+| **Annotations** | Add notes to nodes | Low | Low - Documentation |
+| **Heat Map** | Color by coupling/complexity | Low | Medium - Visual insights |
+| **Export/Share** | PNG/SVG export, shareable links | Medium | Medium - Collaboration |
+| **Time Travel** | View Git history | High | High - Understanding evolution |
+| **AI Insights** | Automated architecture analysis | High | High - Actionable feedback |
+| **Minimap Regions** | Enhanced overview | Low | Low - Navigation aid |
+
+---
+
+## Implementation Priority (Recommended Order)
+
+### Week 1: Core Organization
+1. ✅ **Organize Button** (Critical path filtering)
+2. ✅ **Layer System** (Auto-assign layers)
+3. ✅ **Heat Map** (Coupling visualization)
+
+### Week 2: Manual Control
+4. ✅ **Grouping Boxes** (Custom containers)
+5. ✅ **Bookmarks** (Save views)
+6. ✅ **Export** (PNG/SVG)
+
+### Week 3: Advanced
+7. ✅ **Annotations** (Notes system)
+8. ✅ **Time Travel** (Git history)
+9. ✅ **AI Insights** (Analysis)
+
+---
+
+## Quick Implementation Template
+
+### Organize Button (1-2 hours)
+```bash
+1. Add CriticalPathAnalyzer.js to backend
+2. Add /api/graph/organize endpoint
+3. Add GraphToolbar.jsx with Organize button
+4. Test with your current project
+```
+
+### Grouping Boxes (3-4 hours)
+```bash
+1. Add GroupManager.js to backend
+2. Add /api/groups endpoints
+3. Create GroupBox.jsx component
+4. Implement drag-to-group logic
+5. Test creating and organizing groups
+```
+
+### Layer System (1 hour)
+```bash
+1. Define LAYERS constant
+2. Add auto-assignment logic
+3. Update node positioning
+4. Add layer controls UI
+```
+
+All of these features work together to give users incredible control over visualizing and understanding their codebase!

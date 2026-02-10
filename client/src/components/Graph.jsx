@@ -11,7 +11,7 @@ import ReactFlow, {
 } from 'reactflow';
 
 
-import { Loader2 } from 'lucide-react';
+import { Loader2, Zap, LayoutGrid, Eye, EyeOff } from 'lucide-react';
 import 'reactflow/dist/style.css';
 import useStore from '../store';
 import CustomNode from './CustomNode';
@@ -27,7 +27,8 @@ const nodeTypes = {
 
 // Inner component that uses the hook
 const GraphContent = () => {
-    const { nodes, edges, fetchGraph, onNodesChange, onEdgesChange, highlightDependencies, loading } = useStore();
+    const { nodes, edges, fetchGraph, onNodesChange, onEdgesChange, highlightDependencies, loading,
+        organizeGraph, organizeMode, organizeStats } = useStore();
     const { fitView } = useReactFlow();
 
     useEffect(() => {
@@ -58,6 +59,12 @@ const GraphContent = () => {
         highlightDependencies(null);
     }, [highlightDependencies]);
 
+    const handleOrganize = useCallback((mode) => {
+        organizeGraph(mode);
+        // Fit view after filter to focus on visible nodes
+        setTimeout(() => fitView({ padding: 0.3, duration: 600 }), 50);
+    }, [organizeGraph, fitView]);
+
     return (
         <div style={{ height: '100vh', width: '100vw' }}>
             <ReactFlow
@@ -80,6 +87,50 @@ const GraphContent = () => {
                     className="bg-slate-900 border border-slate-800"
                 />
             </ReactFlow>
+
+            {/* ===== Organize Toolbar ===== */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2">
+                <div className="flex items-center bg-slate-800/90 backdrop-blur-md border border-slate-700 rounded-xl px-1 py-1 shadow-2xl">
+                    <button
+                        onClick={() => handleOrganize('all')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${organizeMode === 'all'
+                                ? 'bg-slate-600 text-white shadow-inner'
+                                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                            }`}
+                    >
+                        <LayoutGrid size={13} />
+                        Show All
+                    </button>
+                    <button
+                        onClick={() => handleOrganize('critical')}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${organizeMode === 'critical'
+                                ? 'bg-gradient-to-r from-amber-500/20 to-amber-600/20 text-amber-300 border border-amber-500/30 shadow-inner shadow-amber-500/10'
+                                : 'text-slate-400 hover:text-amber-300 hover:bg-amber-500/10'
+                            }`}
+                    >
+                        <Zap size={13} />
+                        Critical Path
+                    </button>
+                </div>
+
+                {/* Stats badge when organized */}
+                {organizeStats && organizeMode === 'critical' && (
+                    <div className="flex items-center gap-3 bg-slate-800/90 backdrop-blur-md border border-amber-500/30 rounded-xl px-3 py-1.5 text-xs shadow-2xl">
+                        <span className="text-amber-300 font-bold">
+                            {organizeStats.critical} <span className="text-slate-400 font-normal">/ {organizeStats.total} files</span>
+                        </span>
+                        <span className="text-slate-500">|</span>
+                        <span className="text-emerald-400">🚀 {organizeStats.entryPoints} entry</span>
+                        <span className="text-slate-500">|</span>
+                        <span className="text-violet-400">⭐ {organizeStats.centralNodes} core</span>
+                        <span className="text-slate-500">|</span>
+                        <span className="text-slate-500">
+                            <EyeOff size={10} className="inline mr-0.5" />
+                            {organizeStats.hidden} hidden
+                        </span>
+                    </div>
+                )}
+            </div>
 
             {loading && (
                 <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50">

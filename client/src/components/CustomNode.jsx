@@ -13,7 +13,7 @@ const getIcon = (filename) => {
 };
 
 const CustomNode = ({ id, data, isConnectable }) => {
-    const { label, git, health } = data;
+    const { label, git, health, isEntryPoint, isCentral, criticalReason } = data;
     const { focusedNode, setFocusedNode } = useStore();
     const isFocused = focusedNode === id;
 
@@ -25,11 +25,31 @@ const CustomNode = ({ id, data, isConnectable }) => {
     if (healthScore < 70) healthColor = 'bg-red-500';
     else if (healthScore < 90) healthColor = 'bg-yellow-500';
 
-    const borderColor = isHighChurn ? 'border-red-500' : 'border-slate-700';
-    const glow = isHighChurn ? 'shadow-[0_0_15px_rgba(239,68,68,0.3)]' : '';
+    // Critical path visual overrides
+    let borderColor = isHighChurn ? 'border-red-500' : 'border-slate-700';
+    let glow = isHighChurn ? 'shadow-[0_0_15px_rgba(239,68,68,0.3)]' : '';
+    if (isEntryPoint) {
+        borderColor = 'border-emerald-500';
+        glow = 'shadow-[0_0_18px_rgba(16,185,129,0.35)]';
+    } else if (isCentral) {
+        borderColor = 'border-amber-500';
+        glow = 'shadow-[0_0_18px_rgba(245,158,11,0.3)]';
+    }
 
     return (
-        <div className={`px-4 py-2 shadow-md rounded-md bg-slate-800 border-2 ${borderColor} ${glow} min-w-[180px]`}>
+        <div className={`px-4 py-2 shadow-md rounded-md bg-slate-800 border-2 ${borderColor} ${glow} min-w-[180px] relative`}>
+            {/* Entry Point Badge */}
+            {isEntryPoint && (
+                <div className="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white shadow-md z-10">
+                    🚀 Entry
+                </div>
+            )}
+            {/* Core Module Badge */}
+            {isCentral && !isEntryPoint && (
+                <div className="absolute -top-2.5 -right-2 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-white shadow-md z-10">
+                    ⭐ Core
+                </div>
+            )}
             <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500" />
 
             <div className="flex items-center">
@@ -66,6 +86,13 @@ const CustomNode = ({ id, data, isConnectable }) => {
                     </button>
                 </div>
             </div>
+
+            {/* Critical reason tag */}
+            {criticalReason && (
+                <div className="text-[9px] text-slate-500 mt-1 text-center opacity-70">
+                    {criticalReason}
+                </div>
+            )}
 
             <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />
         </div>

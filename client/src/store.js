@@ -10,6 +10,135 @@ const useStore = create((set, get) => ({
     error: null,
     expandedFolders: new Set(),
     focusedNode: null,
+    organizeMode: 'all', // 'all' | 'critical'
+    organizeStats: null,  // { total, critical, hidden, entryPoints, centralNodes }
+
+    // ===== ORGANIZE: Critical Path Filter (100% client-side) =====
+    organizeGraph: (mode) => {
+        const { nodes, edges, adjacency } = get();
+
+        if (mode === 'all') {
+            // Show everything
+            set({
+                organizeMode: 'all',
+                organizeStats: null,
+                nodes: nodes.map(n => ({
+                    ...n,
+                    hidden: false,
+                    data: { ...n.data, isEntryPoint: false, isCentral: false, criticalReason: null }
+                })),
+                edges: edges.map(e => ({ ...e, hidden: false }))
+            });
+            return;
+        }
+
+        // --- Critical Path Algorithm ---
+        const critical = new Set();
+
+        // 1. Find entry points
+        const entryPatterns = [
+            /index\.(js|jsx|ts|tsx|mjs|cjs)$/i,
+            /main\.(js|jsx|ts|tsx)$/i,
+            /[/\\]App\.(js|jsx|ts|tsx)$/i,
+            /[/\\]app\.(js|jsx|ts|tsx)$/i,
+            /_app\.(js|jsx|ts|tsx)$/i,
+            /_document\.(js|jsx|ts|tsx)$/i,
+            /server\.(js|ts)$/i,
+        ];
+        const supplementaryPatterns = [
+            /\.test\.(js|jsx|ts|tsx)$/i,
+            /\.spec\.(js|jsx|ts|tsx)$/i,
+            /\.stories\.(js|jsx|ts|tsx)$/i,
+            /\.mock\.(js|jsx|ts|tsx)$/i,
+            /__tests__[/\\]/i,
+            /__mocks__[/\\]/i,
+            /\.d\.ts$/i,
+        ];
+
+        const entryPoints = [];
+        const fileNodes = nodes.filter(n => n.type === 'custom');
+
+        fileNodes.forEach(node => {
+            const isNamed = entryPatterns.some(p => p.test(node.id));
+            const adj = adjacency[node.id];
+            const hasNoImporters = !adj || adj.importedBy.length === 0;
+            if (isNamed || hasNoImporters) {
+                entryPoints.push(node.id);
+            }
+        });
+
+        // 2. BFS from entry points following the import chain
+        const visited = new Set();
+        const queue = [...entryPoints];
+        while (queue.length > 0) {
+            const nodeId = queue.shift();
+            if (visited.has(nodeId)) continue;
+            visited.add(nodeId);
+            critical.add(nodeId);
+
+            const adj = adjacency[nodeId];
+            if (adj) {
+                adj.imports.forEach(dep => {
+                    if (!visited.has(dep) && !supplementaryPatterns.some(p => p.test(dep))) {
+                        queue.push(dep);
+                    }
+                });
+            }
+        }
+
+        // 3. High-centrality nodes (top N most-imported that aren't already critical)
+        const centrality = fileNodes
+            .map(n => ({ id: n.id, score: adjacency[n.id]?.importedBy?.length || 0 }))
+            .sort((a, b) => b.score - a.score);
+        const topN = Math.max(3, Math.ceil(fileNodes.length * 0.05)); // top 5% or at least 3
+        const centralNodes = centrality.slice(0, topN).map(c => c.id);
+        centralNodes.forEach(id => critical.add(id));
+
+        // 4. Add parent folders of critical files so container structure is preserved
+        nodes.forEach(n => {
+            if (n.type === 'folder') {
+                // Check if any critical file is inside this folder
+                const hasCriticalChild = [...critical].some(cId => cId.startsWith(n.id));
+                if (hasCriticalChild) critical.add(n.id);
+            }
+        });
+
+        // 5. Apply filter
+        const isEntrySet = new Set(entryPoints);
+        const isCentralSet = new Set(centralNodes);
+
+        const getCriticalReason = (id) => {
+            if (isEntrySet.has(id)) return 'Entry Point';
+            if (isCentralSet.has(id)) return 'Core Module';
+            if (nodes.find(n => n.id === id)?.type === 'folder') return null;
+            return 'Execution Path';
+        };
+
+        set({
+            organizeMode: 'critical',
+            organizeStats: {
+                total: fileNodes.length,
+                critical: [...critical].filter(id => fileNodes.some(n => n.id === id)).length,
+                hidden: fileNodes.length - [...critical].filter(id => fileNodes.some(n => n.id === id)).length,
+                entryPoints: entryPoints.length,
+                centralNodes: centralNodes.length
+            },
+            nodes: nodes.map(n => ({
+                ...n,
+                hidden: !critical.has(n.id),
+                data: {
+                    ...n.data,
+                    isEntryPoint: isEntrySet.has(n.id),
+                    isCentral: isCentralSet.has(n.id),
+                    criticalReason: critical.has(n.id) ? getCriticalReason(n.id) : null
+                }
+            })),
+            edges: edges.map(e => ({
+                ...e,
+                hidden: !(critical.has(e.source) && critical.has(e.target))
+            }))
+        });
+    },
 
     // Actions
     toggleFolder: (folderId) => {
