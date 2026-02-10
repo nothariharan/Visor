@@ -1,4 +1,4 @@
-# VISOR: Advanced Organization & Power User Features
+#: Advanced Organization & Power User Features
 
 ## Overview
 

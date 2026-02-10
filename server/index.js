@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs-extra');
@@ -24,6 +25,12 @@ try {
 
 app.use(cors());
 app.use(express.json());
+
+// Serve static frontend files (for production/CLI usage)
+const clientBuildPath = path.join(__dirname, '../client/dist');
+if (fs.existsSync(clientBuildPath)) {
+    app.use(express.static(clientBuildPath));
+}
 
 // Basic health check
 app.get('/api/health', (req, res) => {
@@ -132,6 +139,15 @@ app.post('/api/search', async (req, res) => {
         res.json({ expandedFolders: Array.from(expandedFolders), matchCount: matches.length });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// SPA Catch-all (for client-side routing)
+app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api') && fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
+        res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    } else if (!req.path.startsWith('/api')) {
+        res.status(404).send('Visor client build not found. Run "npm run build" in client directory.');
     }
 });
 
