@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
+import Ansi from 'ansi-to-react';
 import { Play, Square, RefreshCw, Trash2, ExternalLink, Activity, Terminal } from 'lucide-react';
 import useStore from '../store';
 import '../styles/run-controls.css';
@@ -283,7 +284,7 @@ export default function RunControls() {
                 ) : (
                     output.map((line, i) => (
                         <div key={i} className={`terminal-line ${line.type}`}>
-                            {line.text}
+                            <Ansi>{line.text}</Ansi>
                         </div>
                     ))
                 )}
