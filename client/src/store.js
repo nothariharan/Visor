@@ -329,6 +329,11 @@ const useStore = create((set, get) => ({
                 focusedNode: isBackground ? get().focusedNode : null
             });
 
+            // Re-apply organize filter if active (so folder expand doesn't reset it)
+            if (get().organizeMode === 'critical') {
+                get().organizeGraph('critical');
+            }
+
         } catch (err) {
             set({ error: err.message, loading: false });
         }

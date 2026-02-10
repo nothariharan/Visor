@@ -230,9 +230,9 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 height: n.type === 'custom' ? 80 : 80,
                 children: [],
                 layoutOptions: n.type === 'folder' ? {
-                    "elk.padding": "[top=60,left=30,bottom=30,right=30]",
+                    "elk.padding": "[top=80,left=35,bottom=35,right=35]",
                     "elk.algorithm": "box",
-                    "elk.spacing.nodeNode": "40",
+                    "elk.spacing.nodeNode": "45",
                     "elk.box.packingMode": "GROUP_DEC",
                     "elk.aspectRatio": "2.5" // Wide rectangle, not vertical column
                 } : undefined
