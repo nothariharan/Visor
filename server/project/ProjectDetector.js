@@ -87,6 +87,11 @@ class ProjectDetector {
                 framework = 'angular';
                 primaryCommand = scripts.start || 'ng serve';
             }
+            // Generic Vite
+            else if (deps.vite) {
+                framework = 'vite';
+                primaryCommand = scripts.dev || 'vite';
+            }
             // Express/Node server
             else if (deps.express || deps.fastify || deps.koa || deps.hono) {
                 framework = 'node-server';
