@@ -7,7 +7,8 @@ import ReactFlow, {
     addEdge,
     MiniMap,
     ReactFlowProvider,
-    useReactFlow
+    useReactFlow,
+    ConnectionLineType
 } from 'reactflow';
 
 
@@ -17,6 +18,7 @@ import useStore from '../store';
 import CustomNode from './CustomNode';
 import FolderNode from './FolderNode';
 import EmptyState from './EmptyState';
+import CustomEdge from './CustomEdge';
 
 
 const nodeTypes = {
@@ -24,11 +26,21 @@ const nodeTypes = {
     folder: FolderNode,
 };
 
+const edgeTypes = {
+    custom: CustomEdge,
+};
+
+const defaultEdgeOptions = {
+    type: 'custom',
+    animated: true,
+    style: { stroke: '#b1b1b7', strokeWidth: 2 },
+};
+
 
 // Inner component that uses the hook
 const GraphContent = () => {
     const { nodes, edges, fetchGraph, onNodesChange, onEdgesChange, highlightDependencies, loading,
-        organizeGraph, organizeMode, organizeStats } = useStore();
+        organizeGraph, organizeMode, organizeStats, onConnect } = useStore();
     const { fitView } = useReactFlow();
 
     useEffect(() => {
@@ -72,9 +84,13 @@ const GraphContent = () => {
                 edges={edges}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onConnect={onConnect}
                 onNodeMouseEnter={onNodeMouseEnter}
                 onNodeMouseLeave={onNodeMouseLeave}
                 nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                defaultEdgeOptions={defaultEdgeOptions}
+                connectionLineType={ConnectionLineType.SmoothStep}
                 fitView
                 attributionPosition="bottom-right"
             >
@@ -153,4 +169,3 @@ const Graph = () => (
 );
 
 export default Graph;
-

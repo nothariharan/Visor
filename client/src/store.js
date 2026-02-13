@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
-import { applyNodeChanges, applyEdgeChanges } from 'reactflow';
+import { applyNodeChanges, applyEdgeChanges, addEdge } from 'reactflow';
 
 const useStore = create((set, get) => ({
     nodes: [],
@@ -360,16 +360,23 @@ const useStore = create((set, get) => ({
             // Hierarchy edges: bright cyan dashed
             // Dependency edges: keep server-sent color-coded styles
             const edgesWithStyle = (res.data.edges || []).map(e => {
+                const edgeObj = { ...e, type: 'custom' }; // Force custom edge type
                 if (e.id.startsWith('hierarchy-')) {
-                    return { ...e, style: { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' } };
+                    return { ...edgeObj, style: { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' } };
                 }
                 // dep-* edges already have style from server, just adjust opacity
-                return { ...e, style: { ...e.style, opacity: 0.6 } };
+                return { ...edgeObj, style: { ...e.style, opacity: 0.6 } };
             });
+
+            // Preserve manual edges
+            const currentEdges = get().edges;
+            const manualEdges = currentEdges.filter(e => e.data?.isManual);
+
+            const finalEdges = [...edgesWithStyle, ...manualEdges];
 
             set({
                 nodes: mergedNodes,
-                edges: edgesWithStyle,
+                edges: finalEdges,
                 adjacency: res.data.adjacency || {},
                 loading: false,
                 focusedNode: isBackground ? get().focusedNode : null
@@ -450,6 +457,12 @@ const useStore = create((set, get) => ({
         });
     },
 
+    onConnect: (connection) => {
+        set({
+            edges: addEdge({ ...connection, type: 'custom', animated: true, data: { isManual: true } }, get().edges),
+        });
+    },
+
     // Hover Logic (Adjacency Cache)
     highlightDependencies: (nodeId) => {
         const { adjacency, edges, focusedNode, nodes } = get();
@@ -481,6 +494,10 @@ const useStore = create((set, get) => ({
         }
 
         // Find relevant edges (including hierarchy/structure edges)
+        const connectedEdgeIds = new Set();
+        const connectedNodeIds = new Set();
+        connectedNodeIds.add(nodeId);
+
         edges.forEach(edge => {
             // Include hierarchy edges in highlight logic
             if (edge.source === nodeId || edge.target === nodeId) {
