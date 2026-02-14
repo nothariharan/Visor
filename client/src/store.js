@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
-import { applyNodeChanges, applyEdgeChanges } from 'reactflow';
+import { applyNodeChanges, applyEdgeChanges, addEdge } from 'reactflow';
 
 const useStore = create((set, get) => ({
     nodes: [],
@@ -122,14 +122,15 @@ const useStore = create((set, get) => ({
         }
 
         // 3. High-centrality nodes (only among SOURCE files)
-        const centrality = sourceNodes
-            .filter(n => !supplementaryPatterns.some(p => p.test(n.id)))
-            .map(n => ({ id: n.id, score: adjacency[n.id]?.importedBy?.length || 0 }))
-            .filter(c => c.score > 0) // Must be imported by at least 1 file
-            .sort((a, b) => b.score - a.score);
-        const topN = Math.max(3, Math.ceil(sourceNodes.length * 0.05)); // top 5% or at least 3
-        const centralNodes = centrality.slice(0, topN).map(c => c.id);
-        centralNodes.forEach(id => critical.add(id));
+        // const centrality = sourceNodes
+        //     .filter(n => !supplementaryPatterns.some(p => p.test(n.id)))
+        //     .map(n => ({ id: n.id, score: adjacency[n.id]?.importedBy?.length || 0 }))
+        //     .filter(c => c.score > 0) // Must be imported by at least 1 file
+        //     .sort((a, b) => b.score - a.score);
+        // const topN = Math.max(3, Math.ceil(sourceNodes.length * 0.05)); // top 5% or at least 3
+        // const centralNodes = centrality.slice(0, topN).map(c => c.id);
+        // centralNodes.forEach(id => critical.add(id));
+        const centralNodes = []; // Disable centrality for strict critical path
 
         // 4. Directories are NEVER hidden - they're structural navigation
         // (users need folders to expand and explore the codebase)
@@ -360,16 +361,23 @@ const useStore = create((set, get) => ({
             // Hierarchy edges: bright cyan dashed
             // Dependency edges: keep server-sent color-coded styles
             const edgesWithStyle = (res.data.edges || []).map(e => {
+                const edgeObj = { ...e, type: 'custom' }; // Force custom edge type
                 if (e.id.startsWith('hierarchy-')) {
-                    return { ...e, style: { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' } };
+                    return { ...edgeObj, style: { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' } };
                 }
                 // dep-* edges already have style from server, just adjust opacity
-                return { ...e, style: { ...e.style, opacity: 0.6 } };
+                return { ...edgeObj, style: { ...e.style, opacity: 0.6 } };
             });
+
+            // Preserve manual edges
+            const currentEdges = get().edges;
+            const manualEdges = currentEdges.filter(e => e.data?.isManual);
+
+            const finalEdges = [...edgesWithStyle, ...manualEdges];
 
             set({
                 nodes: mergedNodes,
-                edges: edgesWithStyle,
+                edges: finalEdges,
                 adjacency: res.data.adjacency || {},
                 loading: false,
                 focusedNode: isBackground ? get().focusedNode : null
@@ -450,6 +458,12 @@ const useStore = create((set, get) => ({
         });
     },
 
+    onConnect: (connection) => {
+        set({
+            edges: addEdge({ ...connection, type: 'custom', animated: true, data: { isManual: true } }, get().edges),
+        });
+    },
+
     // Hover Logic (Adjacency Cache)
     highlightDependencies: (nodeId) => {
         const { adjacency, edges, focusedNode, nodes } = get();
@@ -481,6 +495,10 @@ const useStore = create((set, get) => ({
         }
 
         // Find relevant edges (including hierarchy/structure edges)
+        const connectedEdgeIds = new Set();
+        const connectedNodeIds = new Set();
+        connectedNodeIds.add(nodeId);
+
         edges.forEach(edge => {
             // Include hierarchy edges in highlight logic
             if (edge.source === nodeId || edge.target === nodeId) {
@@ -514,6 +532,68 @@ const useStore = create((set, get) => ({
             }))
         });
 
+    },
+
+    // ===== Execution Path Highlighting =====
+    highlightExecutionPath: (nodeIds, type) => {
+        const { edges } = get();
+        const nodeSet = new Set(nodeIds);
+
+        // Find edges that connect nodes in the path
+        const pathEdges = new Set();
+        edges.forEach(edge => {
+            if (nodeSet.has(edge.source) && nodeSet.has(edge.target)) {
+                pathEdges.add(edge.id);
+            }
+        });
+
+        set({
+            edges: edges.map(edge => {
+                if (pathEdges.has(edge.id)) {
+                    return {
+                        ...edge,
+                        animated: true,
+                        style: {
+                            ...edge.style,
+                            stroke: type === 'error' ? '#ef4444' : '#10b981',
+                            strokeWidth: 3,
+                            strokeDasharray: '5,5',
+                            opacity: 1
+                        },
+                        data: { ...edge.data, executionType: type }
+                    };
+                }
+                return edge;
+            })
+        });
+
+        // Auto-clear for execution traces
+        if (type === 'executing') {
+            setTimeout(() => {
+                get().clearExecutionPath();
+            }, 2000);
+        }
+    },
+
+    clearExecutionPath: () => {
+        const { edges } = get();
+        set({
+            edges: edges.map(edge => {
+                if (edge.data?.executionType) {
+                    // Restore original style
+                    const isHierarchy = edge.id.startsWith('hierarchy-');
+                    return {
+                        ...edge,
+                        animated: false,
+                        style: isHierarchy
+                            ? { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' }
+                            : { ...edge.style, stroke: edge.style?.stroke || '#94a3b8', strokeWidth: 1, opacity: 0.6, strokeDasharray: undefined },
+                        data: { ...edge.data, executionType: null }
+                    };
+                }
+                return edge;
+            })
+        });
     }
 }));
 

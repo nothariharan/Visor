@@ -1,10 +1,13 @@
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
+import io from 'socket.io-client';
 
 import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye, Rocket, Star, Pencil } from 'lucide-react';
 import useStore from '../store';
 
-
+// Initialize socket connection outside component to avoid multiple connections
+const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+const socket = io(socketUrl);
 
 const getIcon = (filename) => {
     if (filename.endsWith('.js') || filename.endsWith('.jsx') || filename.endsWith('.ts') || filename.endsWith('.tsx')) return <FileCode size={16} className="text-blue-400" />;
@@ -16,6 +19,70 @@ const CustomNode = ({ id, data, isConnectable }) => {
     const { label, git, health, isEntryPoint, isCentral, criticalReason } = data;
     const { focusedNode, setFocusedNode, openFile } = useStore();
     const isFocused = focusedNode === id;
+    const [executionState, setExecutionState] = useState(null);
+
+    // Subscribe to execution events
+    useEffect(() => {
+        const handleError = (errorData) => {
+            // Check if this node is in the error path
+            const isInPath = errorData.executionPath.some(frame => frame.file === id);
+            const isPrimary = errorData.primaryFile === id;
+
+            if (isPrimary) {
+                setExecutionState({
+                    type: 'error',
+                    message: errorData.error.message,
+                    line: errorData.error.stack[0]?.line,
+                    primary: true
+                });
+            } else if (isInPath) {
+                setExecutionState({
+                    type: 'error-path',
+                    message: 'In error execution path'
+                });
+            }
+        };
+
+        const handleWarning = (warningData) => {
+            if (warningData.file === id) {
+                setExecutionState({
+                    type: 'warning',
+                    message: warningData.message,
+                    line: warningData.line
+                });
+            }
+        };
+
+        const handleTrace = (traceData) => {
+            if (traceData.file === id) {
+                setExecutionState({
+                    type: 'executing',
+                    function: traceData.function
+                });
+
+                // Auto-clear after 2 seconds
+                setTimeout(() => {
+                    setExecutionState(null);
+                }, 2000);
+            }
+        };
+
+        const handleClear = () => {
+            setExecutionState(null);
+        };
+
+        socket.on('execution:error', handleError);
+        socket.on('execution:warning', handleWarning);
+        socket.on('execution:trace', handleTrace);
+        socket.on('errors:cleared', handleClear);
+
+        return () => {
+            socket.off('execution:error', handleError);
+            socket.off('execution:warning', handleWarning);
+            socket.off('execution:trace', handleTrace);
+            socket.off('errors:cleared', handleClear);
+        };
+    }, [id]);
 
 
     // Visual Logic
@@ -36,16 +103,49 @@ const CustomNode = ({ id, data, isConnectable }) => {
         glow = 'shadow-[0_0_18px_rgba(245,158,11,0.3)]';
     }
 
+    // Execution State Overrides
+    let executionClass = '';
+    if (executionState) {
+        switch (executionState.type) {
+            case 'error':
+                borderColor = '!border-red-500';
+                glow = '!shadow-[0_0_30px_rgba(239,68,68,0.6)] animate-pulse';
+                executionClass = 'bg-gradient-to-br from-red-900/80 to-slate-900';
+                break;
+            case 'error-path':
+                borderColor = '!border-red-400';
+                glow = '!shadow-[0_0_15px_rgba(248,113,113,0.4)]';
+                break;
+            case 'warning':
+                borderColor = '!border-amber-500';
+                glow = '!shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-pulse';
+                break;
+            case 'executing':
+                borderColor = '!border-emerald-500';
+                glow = '!shadow-[0_0_20px_rgba(16,185,129,0.5)] animate-pulse';
+                break;
+        }
+    }
+
     return (
-        <div className={`px-4 py-2 shadow-md rounded-md bg-slate-800 border-2 ${borderColor} ${glow} min-w-[180px] relative`}>
+        <div className={`px-4 py-2 shadow-md rounded-md bg-slate-800 border-2 ${borderColor} ${glow} ${executionClass} min-w-[180px] relative transition-all duration-300`}>
+            {/* Execution Indicator */}
+            {executionState && (
+                <div className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-slate-900 border-2 border-current flex items-center justify-center text-xs z-20 shadow-lg">
+                    {executionState.type === 'error' && '🔴'}
+                    {executionState.type === 'warning' && '🟡'}
+                    {executionState.type === 'executing' && '🟢'}
+                </div>
+            )}
+
             {/* Entry Point Badge */}
-            {isEntryPoint && (
+            {isEntryPoint && !executionState && (
                 <div className="absolute -top-2.5 -right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white shadow-md z-10">
                     <Rocket size={9} /> Entry
                 </div>
             )}
             {/* Core Module Badge */}
-            {isCentral && !isEntryPoint && (
+            {isCentral && !isEntryPoint && !executionState && (
                 <div className="absolute -top-2.5 -right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-amber-500 text-white shadow-md z-10">
                     <Star size={9} /> Core
                 </div>
@@ -61,10 +161,17 @@ const CustomNode = ({ id, data, isConnectable }) => {
                     <div className="font-bold text-sm text-slate-200 truncate">
                         {label}
                     </div>
-                    {git && (
+                    {git && !executionState && (
                         <div className="text-[10px] text-slate-400 flex justify-between mt-1">
                             <span>{git.commits} commits</span>
                             {isHighChurn && <AlertCircle size={10} className="text-red-500 inline ml-1" />}
+                        </div>
+                    )}
+                    {/* Execution Message */}
+                    {executionState && executionState.message && (
+                        <div className="text-[10px] text-white mt-1 bg-black/40 p-1 rounded border-l-2 border-current">
+                            <div className="truncate" title={executionState.message}>{executionState.message}</div>
+                            {executionState.line && <div className="opacity-70">Line {executionState.line}</div>}
                         </div>
                     )}
                 </div>
@@ -80,7 +187,7 @@ const CustomNode = ({ id, data, isConnectable }) => {
                         <Pencil size={13} />
                     </button>
                     <a
-                        href={`vscode://file/${data.path || id}`}
+                        href={`vscode://file/${data.path || id}${executionState?.line ? `:${executionState.line}` : ''}`}
                         className="deep-link-btn"
                         title="Open in VS Code"
                         onClick={(e) => e.stopPropagation()}
@@ -98,10 +205,23 @@ const CustomNode = ({ id, data, isConnectable }) => {
             </div>
 
             {/* Critical reason tag */}
-            {criticalReason && (
+            {criticalReason && !executionState && (
                 <div className="text-[9px] text-slate-500 mt-1 text-center opacity-70">
                     {criticalReason}
                 </div>
+            )}
+
+            {/* Jump to Error Button */}
+            {executionState?.type === 'error' && (
+                <button
+                    className="w-full mt-2 py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold rounded transition-colors"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        window.location.href = `vscode://file/${data.path || id}:${executionState.line}`;
+                    }}
+                >
+                    Jump to Error →
+                </button>
             )}
 
             <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />

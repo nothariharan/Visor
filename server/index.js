@@ -149,12 +149,25 @@ const server = require('http').createServer(app);
 const { Server } = require('socket.io');
 const io = new Server(server, { cors: { origin: '*' } });
 
-const processRunner = new ProcessRunner();
+const processRunner = new ProcessRunner(ROOT_DIR);
 
 // Forward process output to WebSocket clients
 processRunner.on('output', (data) => io.emit('process:output', data));
 processRunner.on('exit', (data) => io.emit('process:exit', data));
 processRunner.on('error', (data) => io.emit('process:error', data));
+
+// Forward execution events to WebSocket
+processRunner.on('execution:error', (data) => {
+  io.emit('execution:error', data);
+});
+
+processRunner.on('execution:warning', (data) => {
+  io.emit('execution:warning', data);
+});
+
+processRunner.on('execution:trace', (data) => {
+  io.emit('execution:trace', data);
+});
 
 // API: Detect project (accepts optional ?path= for subdirectory detection)
 app.get('/api/project/detect', async (req, res) => {
@@ -203,6 +216,18 @@ app.get('/api/process/status', statusHandler);
 
 app.get('/api/process/list', (req, res) => {
     res.json(processRunner.listProcesses());
+});
+
+// API: Get current execution states
+app.get('/api/execution/states', (req, res) => {
+  const states = processRunner.getExecutionStates();
+  res.json(states);
+});
+
+// API: Clear errors
+app.post('/api/execution/clear-errors', (req, res) => {
+  processRunner.clearErrors();
+  res.json({ success: true });
 });
 
 // SPA Catch-all (for client-side routing)
