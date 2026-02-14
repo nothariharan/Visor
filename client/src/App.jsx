@@ -3,6 +3,7 @@ import Graph from './components/Graph';
 import Search from './components/Search';
 import CodeEditor from './components/CodeEditor';
 import RunControls from './components/RunControls';
+import ErrorToast from './components/ErrorToast';
 
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
       <Graph />
       <CodeEditor />
       <RunControls />
+      <ErrorToast />
     </div>
 
   );

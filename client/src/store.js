@@ -532,6 +532,68 @@ const useStore = create((set, get) => ({
             }))
         });
 
+    },
+
+    // ===== Execution Path Highlighting =====
+    highlightExecutionPath: (nodeIds, type) => {
+        const { edges } = get();
+        const nodeSet = new Set(nodeIds);
+
+        // Find edges that connect nodes in the path
+        const pathEdges = new Set();
+        edges.forEach(edge => {
+            if (nodeSet.has(edge.source) && nodeSet.has(edge.target)) {
+                pathEdges.add(edge.id);
+            }
+        });
+
+        set({
+            edges: edges.map(edge => {
+                if (pathEdges.has(edge.id)) {
+                    return {
+                        ...edge,
+                        animated: true,
+                        style: {
+                            ...edge.style,
+                            stroke: type === 'error' ? '#ef4444' : '#10b981',
+                            strokeWidth: 3,
+                            strokeDasharray: '5,5',
+                            opacity: 1
+                        },
+                        data: { ...edge.data, executionType: type }
+                    };
+                }
+                return edge;
+            })
+        });
+
+        // Auto-clear for execution traces
+        if (type === 'executing') {
+            setTimeout(() => {
+                get().clearExecutionPath();
+            }, 2000);
+        }
+    },
+
+    clearExecutionPath: () => {
+        const { edges } = get();
+        set({
+            edges: edges.map(edge => {
+                if (edge.data?.executionType) {
+                    // Restore original style
+                    const isHierarchy = edge.id.startsWith('hierarchy-');
+                    return {
+                        ...edge,
+                        animated: false,
+                        style: isHierarchy
+                            ? { stroke: '#38bdf8', strokeWidth: 2.5, opacity: 1, strokeDasharray: '8,4' }
+                            : { ...edge.style, stroke: edge.style?.stroke || '#94a3b8', strokeWidth: 1, opacity: 0.6, strokeDasharray: undefined },
+                        data: { ...edge.data, executionType: null }
+                    };
+                }
+                return edge;
+            })
+        });
     }
 }));
 

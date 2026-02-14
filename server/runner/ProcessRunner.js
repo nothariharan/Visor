@@ -1,10 +1,28 @@
 const { spawn } = require('child_process');
 const EventEmitter = require('events');
+const { ExecutionTracer } = require('../tracer/ExecutionTracer.js');
 
 class ProcessRunner extends EventEmitter {
-    constructor() {
+    constructor(projectRoot) {
         super();
+        this.projectRoot = projectRoot || process.cwd();
         this.processes = new Map();
+
+        // Add tracer
+        this.tracer = new ExecutionTracer(this.projectRoot);
+
+        // Forward tracer events
+        this.tracer.on('error:detected', (data) => {
+          this.emit('execution:error', data);
+        });
+
+        this.tracer.on('warning:detected', (data) => {
+          this.emit('execution:warning', data);
+        });
+
+        this.tracer.on('file:executed', (data) => {
+          this.emit('execution:trace', data);
+        });
     }
 
     /**
@@ -29,11 +47,15 @@ class ProcessRunner extends EventEmitter {
             process: proc,
             command,
             startTime: Date.now(),
-            status: 'running'
+            status: 'running',
+            cwd
         });
 
         // Handle stdout
         proc.stdout.on('data', (data) => {
+            // Send to tracer for analysis
+            this.tracer.processOutput(data);
+
             this.emit('output', {
                 id,
                 type: 'stdout',
@@ -43,6 +65,9 @@ class ProcessRunner extends EventEmitter {
 
         // Handle stderr
         proc.stderr.on('data', (data) => {
+            // Send to tracer for analysis
+            this.tracer.processOutput(data);
+
             this.emit('output', {
                 id,
                 type: 'stderr',
@@ -131,11 +156,7 @@ class ProcessRunner extends EventEmitter {
         const procData = this.processes.get(id);
 
         if (procData) {
-            const { command, process: oldProc } = procData;
-            // Get CWD from old process spawn args if available, or assume current?
-            // Actually we didn't store CWD. Let's rely on stored command context if needed
-            // But simplify: we usually run in project root.
-            const cwd = process.cwd(); // Or store it in start()
+            const { command, cwd } = procData;
 
             this.stop(id);
 
@@ -180,6 +201,16 @@ class ProcessRunner extends EventEmitter {
             });
         }
         return list;
+    }
+
+    // Add method to get file states
+    getExecutionStates() {
+        return this.tracer.getFileStates();
+    }
+
+    // Add method to clear errors
+    clearErrors() {
+        this.tracer.clearAllErrors();
     }
 }
 

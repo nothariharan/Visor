@@ -10,6 +10,7 @@ import ReactFlow, {
     useReactFlow,
     ConnectionLineType
 } from 'reactflow';
+import io from 'socket.io-client';
 
 
 import { Loader2, Zap, LayoutGrid, Eye, EyeOff, Rocket, Star } from 'lucide-react';
@@ -19,6 +20,10 @@ import CustomNode from './CustomNode';
 import FolderNode from './FolderNode';
 import EmptyState from './EmptyState';
 import CustomEdge from './CustomEdge';
+
+// Initialize socket connection outside component to avoid multiple connections
+const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+const socket = io(socketUrl);
 
 
 const nodeTypes = {
@@ -40,7 +45,7 @@ const defaultEdgeOptions = {
 // Inner component that uses the hook
 const GraphContent = () => {
     const { nodes, edges, fetchGraph, onNodesChange, onEdgesChange, highlightDependencies, loading,
-        organizeGraph, organizeMode, organizeStats, onConnect } = useStore();
+        organizeGraph, organizeMode, organizeStats, onConnect, highlightExecutionPath } = useStore();
     const { fitView } = useReactFlow();
 
     useEffect(() => {
@@ -61,6 +66,35 @@ const GraphContent = () => {
             }, 100);
         }
     }, [nodes.length, loading, fitView]);
+
+    // Subscribe to execution events for path highlighting
+    useEffect(() => {
+        const handleError = (data) => {
+            const { executionPath } = data;
+            const pathNodeIds = executionPath.map(frame => frame.file);
+            highlightExecutionPath(pathNodeIds, 'error');
+        };
+
+        const handleTrace = (data) => {
+            // For trace, we might want to highlight just the active file or a small path
+            // For now, let's just highlight the single file as "executing"
+            // But highlightExecutionPath expects a list of nodes to find edges between.
+            // If we only have one node, no edges will be highlighted.
+            // We need at least 2 nodes to highlight an edge.
+            // Ideally backend sends "source -> target" trace.
+            // Current implementation only sends "file executed".
+            // So we can't easily highlight edges for single file trace without history.
+            // Skipping edge highlight for single file trace for now, node highlight is handled in CustomNode.
+        };
+
+        socket.on('execution:error', handleError);
+        socket.on('execution:trace', handleTrace);
+
+        return () => {
+            socket.off('execution:error', handleError);
+            socket.off('execution:trace', handleTrace);
+        };
+    }, [highlightExecutionPath]);
 
 
     const onNodeMouseEnter = useCallback((event, node) => {
