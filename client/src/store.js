@@ -122,14 +122,15 @@ const useStore = create((set, get) => ({
         }
 
         // 3. High-centrality nodes (only among SOURCE files)
-        const centrality = sourceNodes
-            .filter(n => !supplementaryPatterns.some(p => p.test(n.id)))
-            .map(n => ({ id: n.id, score: adjacency[n.id]?.importedBy?.length || 0 }))
-            .filter(c => c.score > 0) // Must be imported by at least 1 file
-            .sort((a, b) => b.score - a.score);
-        const topN = Math.max(3, Math.ceil(sourceNodes.length * 0.05)); // top 5% or at least 3
-        const centralNodes = centrality.slice(0, topN).map(c => c.id);
-        centralNodes.forEach(id => critical.add(id));
+        // const centrality = sourceNodes
+        //     .filter(n => !supplementaryPatterns.some(p => p.test(n.id)))
+        //     .map(n => ({ id: n.id, score: adjacency[n.id]?.importedBy?.length || 0 }))
+        //     .filter(c => c.score > 0) // Must be imported by at least 1 file
+        //     .sort((a, b) => b.score - a.score);
+        // const topN = Math.max(3, Math.ceil(sourceNodes.length * 0.05)); // top 5% or at least 3
+        // const centralNodes = centrality.slice(0, topN).map(c => c.id);
+        // centralNodes.forEach(id => critical.add(id));
+        const centralNodes = []; // Disable centrality for strict critical path
 
         // 4. Directories are NEVER hidden - they're structural navigation
         // (users need folders to expand and explore the codebase)
