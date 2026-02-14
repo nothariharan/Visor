@@ -1,92 +1,123 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import Ansi from 'ansi-to-react';
-import { Play, Square, RefreshCw, Trash2, ExternalLink, Activity, Terminal } from 'lucide-react';
+import { Play, Square, RefreshCw, Trash2, ExternalLink, Activity, Terminal, ChevronDown, ChevronUp, Layers, Box } from 'lucide-react';
 import useStore from '../store';
-import '../styles/run-controls.css';
+import '../styles/run-controls.css'; // Ensure you have basic styles or update them
 
 export default function RunControls() {
-    const { activeRunDir } = useStore(); // Get selected directory
-    const [projectInfo, setProjectInfo] = useState(null);
-    const [processStatus, setProcessStatus] = useState('stopped'); // stopped, starting, running, stopping, error
-    const [output, setOutput] = useState([]);
-    const [selectedCommand, setSelectedCommand] = useState(null);
-    const [socket, setSocket] = useState(null);
+    const { activeRunDir } = useStore();
+
+    // State
+    const [runtimes, setRuntimes] = useState([]);
+    const [activeRuntimeId, setActiveRuntimeId] = useState(null);
+    const [outputs, setOutputs] = useState({}); // { [id]: [{type, text, timestamp}] }
+    const [statuses, setStatuses] = useState({}); // { [id]: 'stopped' | 'starting' | 'running' | 'error' }
     const [isExpanded, setIsExpanded] = useState(true);
+    const [socket, setSocket] = useState(null);
+    const [loading, setLoading] = useState(true);
 
     const outputRef = useRef(null);
     const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
 
-    // Detect project on mount OR when activeRunDir changes
+    // 1. Fetch Runtimes on Mount/Change
     useEffect(() => {
-        // Reset while loading new dir info, unless it's just initial load
-        if (activeRunDir) setProjectInfo(null);
-
+        setLoading(true);
         const url = activeRunDir
-            ? `/api/project/detect?path=${encodeURIComponent(activeRunDir)}`
-            : '/api/project/detect';
+            ? `/api/project/detect?path=${encodeURIComponent(activeRunDir)}` // Fallback/Legacy if needed, but we prefer new endpoint
+            : '/api/runtimes/detect'; // Use new endpoint
 
-        fetch(url)
+        // If activeRunDir is set, we might want to filter or detect just that dir.
+        // But the new detector detects EVERYTHING. 
+        // Let's use the new endpoint always for now, it returns everything.
+        // If activeRunDir is set, we could maybe auto-select the runtime matching that dir.
+
+        fetch('/api/runtimes/detect')
             .then(res => res.json())
-            .then(info => {
-                setProjectInfo(info);
-                // Auto-select primary command
-                const primary = info.commands?.find(c => c.primary);
-                if (primary) setSelectedCommand(primary);
+            .then(data => {
+                const detected = data.runtimes || [];
+                setRuntimes(detected);
+
+                // Initialize state for new runtimes
+                const initialOutputs = {};
+                const initialStatuses = {};
+                detected.forEach(r => {
+                    initialOutputs[r.id] = [];
+                    initialStatuses[r.id] = 'stopped';
+                });
+
+                // Merge with existing to preserve history if re-fetching
+                setOutputs(prev => ({ ...initialOutputs, ...prev }));
+                setStatuses(prev => ({ ...initialStatuses, ...prev }));
+
+                // Auto-select first if none selected
+                if (detected.length > 0 && !activeRuntimeId) {
+                    // Try to find one matching activeRunDir
+                    const match = activeRunDir ? detected.find(r => r.workingDir === activeRunDir) : null;
+                    setActiveRuntimeId(match ? match.id : detected[0].id);
+                } else if (detected.length > 0 && !detected.find(r => r.id === activeRuntimeId)) {
+                    // If active ID no longer exists, reset
+                    setActiveRuntimeId(detected[0].id);
+                }
+
+                setLoading(false);
             })
-            .catch(err => console.error("Project detection failed:", err));
+            .catch(err => {
+                console.error("Runtime detection failed:", err);
+                setLoading(false);
+            });
     }, [activeRunDir]);
 
-    // Check status on mount in case already running (e.g. refresh)
+    // 2. Sync Initial Statuses
     useEffect(() => {
-        fetch('/api/process/status')
+        fetch('/api/process/list')
             .then(res => res.json())
-            .then(status => {
-                if (status.status === 'running') {
-                    setProcessStatus('running');
-                    // We missed past logs, but socket will send new ones. 
-                    // Could implement log replay in backend if needed.
-                }
+            .then(list => {
+                const newStatuses = {};
+                list.forEach(p => {
+                    newStatuses[p.id] = p.status;
+                });
+                setStatuses(prev => ({ ...prev, ...newStatuses }));
             });
     }, []);
 
-    // Setup WebSocket for real-time output
+    // 3. Socket Connection
     useEffect(() => {
         const newSocket = io(socketUrl);
         setSocket(newSocket);
 
-        newSocket.on('process:output', (data) => {
-            setOutput(prev => {
-                const lines = data.data.split('\n');
-                // Remove trailing empty line from split
-                if (lines[lines.length - 1] === '') lines.pop();
+        // Helper to update output for a specific ID
+        const appendOutput = (id, entry) => {
+            setOutputs(prev => {
+                const current = prev[id] || [];
+                // Limit to 1000 lines per runtime
+                const updated = [...current, entry];
+                if (updated.length > 1000) updated.shift();
+                return { ...prev, [id]: updated };
+            });
+        };
 
-                const newEntries = lines.map(line => ({
-                    type: data.type,
-                    text: line,
-                    timestamp: Date.now()
-                }));
-                return [...prev, ...newEntries].slice(-1000); // Keep last 1000 lines
+        newSocket.on('process:output', (data) => {
+            const { id, type, data: text } = data;
+            // Split lines to handle chunked output better
+            const lines = text.split('\n');
+            if (lines[lines.length - 1] === '') lines.pop();
+
+            lines.forEach(line => {
+                appendOutput(id, { type, text: line, timestamp: Date.now() });
             });
         });
 
         newSocket.on('process:exit', (data) => {
-            setProcessStatus('stopped');
-            setOutput(prev => [...prev, {
-                type: 'system',
-                text: `>>> Process exited with code ${data.code}`,
-                timestamp: Date.now()
-            }]);
+            const { id, code } = data;
+            setStatuses(prev => ({ ...prev, [id]: 'stopped' }));
+            appendOutput(id, { type: 'system', text: `>>> Process exited with code ${code}`, timestamp: Date.now() });
         });
 
         newSocket.on('process:error', (data) => {
-            // Only update status if it was running/starting
-            // setProcessStatus('error'); 
-            setOutput(prev => [...prev, {
-                type: 'error',
-                text: `>>> ERROR: ${data.error}`,
-                timestamp: Date.now()
-            }]);
+            const { id, error } = data;
+            // setStatuses(prev => ({ ...prev, [id]: 'error' })); // Optional, maybe keep 'running' if just an error log?
+            appendOutput(id, { type: 'error', text: `>>> ERROR: ${error}`, timestamp: Date.now() });
         });
 
         return () => newSocket.close();
@@ -97,215 +128,223 @@ export default function RunControls() {
         if (outputRef.current) {
             outputRef.current.scrollTop = outputRef.current.scrollHeight;
         }
-    }, [output]);
+    }, [outputs, activeRuntimeId]);
+
+    // Handlers
+    const getActiveRuntime = () => runtimes.find(r => r.id === activeRuntimeId);
 
     const handleStart = async () => {
-        if (!selectedCommand) return;
+        const runtime = getActiveRuntime();
+        if (!runtime) return;
 
-        setOutput([]); // Clear previous run
-        setProcessStatus('starting');
+        // Clear output on start? Maybe optional.
+        setOutputs(prev => ({ ...prev, [runtime.id]: [] }));
+        setStatuses(prev => ({ ...prev, [runtime.id]: 'starting' }));
         setIsExpanded(true);
 
         try {
-            const res = await fetch('/api/process/start', {
+            await fetch('/api/process/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    id: 'default',
-                    command: selectedCommand.command,
-                    cwd: activeRunDir // Run in selected directory
+                    id: runtime.id,
+                    command: runtime.command,
+                    cwd: runtime.workingDir
                 })
             });
-            const data = await res.json();
-
-            if (data.status === 'running') {
-                setProcessStatus('running');
-            } else {
-                setProcessStatus('error'); // Should happen via socket error event usually
-            }
-
+            // Status update will come via socket or assumption
+            setStatuses(prev => ({ ...prev, [runtime.id]: 'running' }));
         } catch (error) {
-            setProcessStatus('error');
-            setOutput(prev => [...prev, {
-                type: 'error',
-                text: `Failed to start: ${error.message}`,
-                timestamp: Date.now()
-            }]);
+            setStatuses(prev => ({ ...prev, [runtime.id]: 'error' }));
+            console.error("Start failed", error);
         }
     };
 
     const handleStop = async () => {
-        setProcessStatus('stopping');
+        const runtime = getActiveRuntime();
+        if (!runtime) return;
 
+        setStatuses(prev => ({ ...prev, [runtime.id]: 'stopping' }));
         try {
             await fetch('/api/process/stop', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: 'default' })
+                body: JSON.stringify({ id: runtime.id })
             });
-            // Status update will come via socket exit event
         } catch (error) {
-            console.error('Stop failed:', error);
+            console.error("Stop failed", error);
         }
     };
 
     const handleRestart = async () => {
-        // Optimistic UI updates handled by events
-        setProcessStatus('stopping');
+        const runtime = getActiveRuntime();
+        if (!runtime) return;
 
+        setStatuses(prev => ({ ...prev, [runtime.id]: 'stopping' }));
         try {
             await fetch('/api/process/restart', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: 'default' })
+                body: JSON.stringify({ id: runtime.id })
             });
-            setProcessStatus('running'); // Assume success, socket will correcting if fails
-        } catch (e) {
-            console.error(e);
+            setStatuses(prev => ({ ...prev, [runtime.id]: 'running' }));
+        } catch (error) {
+            console.error("Restart failed", error);
         }
     };
 
     const handleClear = () => {
-        setOutput([]);
+        if (activeRuntimeId) {
+            setOutputs(prev => ({ ...prev, [activeRuntimeId]: [] }));
+        }
     };
 
-    if (!projectInfo) {
-        return (
-            <div className="fixed bottom-4 right-4 bg-slate-800 text-slate-400 text-xs px-3 py-2 rounded shadow-lg border border-slate-700 animate-pulse">
-                Detecting Project...
-            </div>
-        );
-    }
+    // Render Helpers
+    const activeRuntime = getActiveRuntime();
+    const activeStatus = activeRuntimeId ? (statuses[activeRuntimeId] || 'stopped') : 'stopped';
+    const activeOutput = activeRuntimeId ? (outputs[activeRuntimeId] || []) : [];
 
-    // Minimized State
+    // Minimized View
     if (!isExpanded) {
+        // Show status of ALL running apps or just a summary
+        const runningCount = Object.values(statuses).filter(s => s === 'running').length;
+
         return (
             <div
                 className="fixed bottom-4 right-4 bg-slate-800 border border-slate-700 rounded-md shadow-lg p-2 flex items-center gap-3 cursor-pointer z-50 hover:bg-slate-700 transition-colors"
                 onClick={() => setIsExpanded(true)}
             >
-                <div className={`w-3 h-3 rounded-full ${processStatus === 'running' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`}></div>
-                <span className="text-sm font-bold text-slate-200">Run Project</span>
-                <Terminal size={16} className="text-slate-400" />
+                <div className="flex items-center gap-2">
+                    {runningCount > 0 ? (
+                        <span className="flex h-3 w-3 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                        </span>
+                    ) : (
+                        <div className="w-3 h-3 rounded-full bg-slate-500"></div>
+                    )}
+                    <span className="text-sm font-bold text-slate-200">
+                        {runningCount > 0 ? `${runningCount} Apps Running` : 'Run Project'}
+                    </span>
+                </div>
+                <ChevronUp size={16} className="text-slate-400" />
             </div>
         );
     }
 
-    if (projectInfo.type === 'unknown') {
+    if (loading && runtimes.length === 0) {
         return (
-            <div className="run-controls unknown">
-                <div className="flex justify-between w-full mb-2">
-                    <span className="font-bold text-amber-500">Manual Mode</span>
-                    <button onClick={() => setIsExpanded(false)} className="text-slate-500 hover:text-white"><Square size={14} /></button>
-                </div>
-                <p className="text-xs text-slate-400">Could not auto-detect project type.</p>
-                <p className="text-xs text-slate-500 mt-1">Add package.json, requirements.txt, or docker-compose.yml.</p>
+            <div className="fixed bottom-4 right-4 bg-slate-800 text-slate-400 p-4 rounded shadow-lg border border-slate-700">
+                Loading runtimes...
             </div>
         );
     }
 
     return (
-        <div className="run-controls">
-            {/* Header */}
-            <div className="run-header">
-                <div className="project-info">
-                    <button onClick={() => setIsExpanded(false)} className="mr-2 text-slate-400 hover:text-white" title="Minimize">
-                        <Terminal size={14} />
-                    </button>
-                    <span className="project-type uppercase">{projectInfo.framework}</span>
-                    {projectInfo.defaultPort && (
-                        <span className="text-slate-500 text-xs ml-2">:{projectInfo.defaultPort}</span>
+        <div className="run-controls flex flex-col h-[300px] w-[600px] fixed bottom-4 right-4 bg-[#1e1e1e] border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
+            {/* Header / Tabs */}
+            <div className="bg-[#252526] border-b border-black flex items-center justify-between px-2 h-10">
+
+                {/* Runtime Tabs */}
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1 mr-2">
+                    {runtimes.length > 0 ? runtimes.map(r => (
+                        <button
+                            key={r.id}
+                            onClick={() => setActiveRuntimeId(r.id)}
+                            className={`
+                                flex items-center gap-2 px-3 py-1 text-xs rounded-t-sm border-t-2 transition-colors whitespace-nowrap
+                                ${activeRuntimeId === r.id
+                                    ? 'bg-[#1e1e1e] text-white border-blue-500'
+                                    : 'bg-[#2d2d2d] text-slate-400 border-transparent hover:bg-[#333]'}
+                            `}
+                        >
+                            <span>{r.icon || '📦'}</span>
+                            <span className="font-medium">{r.name}</span>
+                            {statuses[r.id] === 'running' && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            )}
+                        </button>
+                    )) : (
+                        <div className="text-xs text-slate-500 px-2 flex items-center gap-1">
+                            <Box size={12} /> No runtimes detected
+                        </div>
                     )}
                 </div>
 
-                <div className="command-selector">
-                    <select
-                        className="bg-slate-800 text-slate-200 text-xs rounded border border-slate-700 px-2 py-1 outline-none focus:border-blue-500"
-                        value={selectedCommand?.command || ''}
-                        onChange={(e) => {
-                            const cmd = projectInfo.commands.find(c => c.command === e.target.value);
-                            setSelectedCommand(cmd);
-                        }}
-                    >
-                        {projectInfo.commands.map(cmd => (
-                            <option key={cmd.command} value={cmd.command}>
-                                {cmd.name} ({cmd.command})
-                            </option>
-                        ))}
-                    </select>
+                {/* Window Controls */}
+                <div className="flex items-center gap-1">
+                    <button onClick={() => setIsExpanded(false)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">
+                        <ChevronDown size={14} />
+                    </button>
                 </div>
             </div>
 
-            {/* Control Buttons */}
-            <div className="run-controls-buttons">
-                {processStatus !== 'running' && processStatus !== 'stopping' ? (
-                    <button
-                        className="btn-start"
-                        onClick={handleStart}
-                        disabled={!selectedCommand || processStatus === 'starting'}
-                    >
-                        <Play size={14} fill="currentColor" /> Run
-                    </button>
-                ) : (
+            {/* Toolbar (Context Sensitive) */}
+            <div className="bg-[#1e1e1e] border-b border-slate-800 p-2 flex items-center gap-2 h-10">
+                {activeRuntime ? (
                     <>
-                        <button
-                            className="btn-stop"
-                            onClick={handleStop}
-                            disabled={processStatus === 'stopping'}
-                        >
-                            <Square size={14} fill="currentColor" /> Stop
-                        </button>
-                        <button
-                            className="btn-restart"
-                            onClick={handleRestart}
-                            disabled={processStatus !== 'running'}
-                        >
-                            <RefreshCw size={14} /> Restart
+                        <div className="flex items-center gap-2 mr-auto">
+                            <span className="text-xs text-slate-400 font-mono bg-black/20 px-2 py-0.5 rounded">
+                                {activeRuntime.command}
+                            </span>
+                            {activeStatus === 'running' && activeRuntime.port && (
+                                <a
+                                    href={`http://localhost:${activeRuntime.port}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 hover:underline"
+                                >
+                                    <ExternalLink size={10} /> localhost:{activeRuntime.port}
+                                </a>
+                            )}
+                        </div>
+
+                        {/* Controls */}
+                        {activeStatus === 'running' || activeStatus === 'stopping' ? (
+                            <>
+                                <button onClick={handleRestart} disabled={activeStatus === 'stopping'} className="p-1.5 bg-yellow-600/20 text-yellow-500 hover:bg-yellow-600/30 rounded" title="Restart">
+                                    <RefreshCw size={14} />
+                                </button>
+                                <button onClick={handleStop} disabled={activeStatus === 'stopping'} className="flex items-center gap-1 px-3 py-1 bg-red-600/20 text-red-500 hover:bg-red-600/30 rounded text-xs font-bold uppercase transition-colors">
+                                    <Square size={12} fill="currentColor" /> Stop
+                                </button>
+                            </>
+                        ) : (
+                            <button onClick={handleStart} disabled={activeStatus === 'starting'} className="flex items-center gap-1 px-3 py-1 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-600/30 rounded text-xs font-bold uppercase transition-colors">
+                                <Play size={12} fill="currentColor" /> Run
+                            </button>
+                        )}
+
+                        <div className="w-px h-4 bg-slate-700 mx-1"></div>
+
+                        <button onClick={handleClear} className="p-1.5 text-slate-500 hover:text-slate-300 rounded" title="Clear Output">
+                            <Trash2 size={14} />
                         </button>
                     </>
+                ) : (
+                    <div className="text-xs text-slate-500">Select a runtime to control</div>
                 )}
-
-                <button
-                    className="btn-clear"
-                    onClick={handleClear}
-                    title="Clear Console"
-                >
-                    <Trash2 size={14} />
-                </button>
             </div>
 
-            {/* Terminal Output */}
-            <div className="terminal-output" ref={outputRef}>
-                {output.length === 0 ? (
-                    <div className="terminal-placeholder">
-                        <Terminal size={48} className="mx-auto text-slate-700 mb-2" />
-                        <p>Output will appear here...</p>
-                    </div>
-                ) : (
-                    output.map((line, i) => (
-                        <div key={i} className={`terminal-line ${line.type}`}>
+            {/* Terminal Area */}
+            <div className="flex-1 bg-black p-2 overflow-y-auto font-mono text-xs" ref={outputRef}>
+                {activeOutput.length > 0 ? (
+                    activeOutput.map((line, i) => (
+                        <div key={i} className={`whitespace-pre-wrap break-all leading-tight ${line.type === 'error' ? 'text-red-400' :
+                                line.type === 'system' ? 'text-blue-400 italic' :
+                                    'text-slate-300'
+                            }`}>
                             <Ansi>{line.text}</Ansi>
                         </div>
                     ))
+                ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-700 opacity-50">
+                        <Terminal size={32} className="mb-2" />
+                        <span>Ready to run</span>
+                    </div>
                 )}
             </div>
-
-            {/* Quick Actions */}
-            {processStatus === 'running' && projectInfo.defaultPort && (
-                <div className="quick-actions">
-                    <span className="mr-auto text-xs text-emerald-500 flex items-center gap-1">
-                        <Activity size={12} /> App Running
-                    </span>
-                    <a
-                        href={`http://localhost:${projectInfo.defaultPort}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="open-browser-btn"
-                    >
-                        Open Browser <ExternalLink size={12} />
-                    </a>
-                </div>
-            )}
         </div>
     );
 }
+
