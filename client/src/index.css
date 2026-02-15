@@ -2,99 +2,232 @@
 @tailwind components;
 @tailwind utilities;
 
-
-html,
-body,
-#root {
-  height: 100%;
+/* Global Styles */
+* {
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'JetBrains Mono', monospace;
+  background-color: #1e1e2e;
+  color: #cdd6f4;
   overflow: hidden;
-  background-color: #0f172a;
-  /* Slate 900 */
-  color: #e2e8f0;
-  /* Slate 200 */
 }
 
-/* ===== EDGE PULSE ANIMATION ===== */
-/* Animated dots that travel along dependency edges */
-@keyframes edgePulse {
-  0% {
-    stroke-dashoffset: 24;
-  }
-
-  100% {
-    stroke-dashoffset: 0;
-  }
+/* Remove default scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
 }
 
-@keyframes edgeGlow {
+::-webkit-scrollbar-track {
+  background: #181825;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #45475a;
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
+}
+
+/* React Flow Overrides */
+.react-flow {
+  background-color: #181825 !important;
+}
+
+.react-flow__node {
+  transition: transform 0.2s ease-out;
+}
+
+.react-flow__node:hover {
+  transform: translateY(-2px);
+}
+
+.react-flow__edge-path {
+  stroke: #45475a;
+  stroke-width: 2px;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:focus .react-flow__edge-path {
+  stroke: #89b4fa;
+  stroke-width: 3px;
+}
+
+.react-flow__controls {
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 0;
+  box-shadow: 4px 4px 0px rgba(17, 17, 27, 1);
+}
+
+.react-flow__controls-button {
+  background: #313244;
+  border-bottom: 1px solid #45475a;
+  color: #cdd6f4;
+}
+
+.react-flow__controls-button:hover {
+  background: #45475a;
+}
+
+.react-flow__minimap {
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 0;
+}
+
+/* Terminal cursor effect */
+.terminal-cursor::after {
+  content: '█';
+  animation: blink 1s step-end infinite;
+  margin-left: 2px;
+}
+
+@keyframes blink {
 
   0%,
-  100% {
-    opacity: 0.5;
-  }
-
   50% {
-    opacity: 0.9;
+    opacity: 1;
+  }
+
+  51%,
+  100% {
+    opacity: 0;
   }
 }
 
-/* Default dependency edges - subtle animation */
-.react-flow__edge-default path,
-.react-flow__edge-bezier path {
-  stroke-dasharray: 6, 6;
-  animation: edgePulse 1.5s linear infinite;
+/* Tag styles (like the reference image) */
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px;
+  font-size: 11px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  text-transform: lowercase;
+  font-weight: 500;
 }
 
-/* Hierarchy edges (dashed connecting lines) - slower, more visible */
-.react-flow__edge-smoothstep path {
-  animation: edgeGlow 3s ease-in-out infinite;
+.tag-blue {
+  color: #89b4fa;
+  border-color: #89b4fa;
 }
 
-/* Highlighted/hovered edges - faster, brighter pulse */
-.react-flow__edge.animated path {
-  stroke-dasharray: 8, 4 !important;
-  animation: edgePulse 0.8s linear infinite !important;
+.tag-green {
+  color: #a6e3a1;
+  border-color: #a6e3a1;
 }
 
-/* ===== DEEP LINK BUTTON ===== */
-.deep-link-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
-  background: rgba(59, 130, 246, 0.15);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  color: #60a5fa;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  text-decoration: none;
+.tag-peach {
+  color: #fab387;
+  border-color: #fab387;
 }
 
-.deep-link-btn:hover {
-  background: rgba(59, 130, 246, 0.35);
-  border-color: #60a5fa;
-  color: #93c5fd;
-  transform: scale(1.15);
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+.tag-red {
+  color: #f38ba8;
+  border-color: #f38ba8;
 }
 
-/* ===== MINIMAP OVERRIDES ===== */
-.react-flow__minimap {
-  border-radius: 8px;
+.tag-yellow {
+  color: #f9e2af;
+  border-color: #f9e2af;
 }
 
-/* ===== CONTROLS OVERRIDES ===== */
-.react-flow__controls button {
-  background-color: #1e293b !important;
-  border-color: #334155 !important;
-  color: #94a3b8 !important;
+.tag-mauve {
+  color: #cba6f7;
+  border-color: #cba6f7;
 }
 
-.react-flow__controls button:hover {
-  background-color: #334155 !important;
-  color: #e2e8f0 !important;
+/* Add to src/index.css */
+
+/* Glitch effect on error */
+@keyframes glitch {
+  0% {
+    transform: translate(0);
+  }
+
+  20% {
+    transform: translate(-2px, 2px);
+  }
+
+  40% {
+    transform: translate(-2px, -2px);
+  }
+
+  60% {
+    transform: translate(2px, 2px);
+  }
+
+  80% {
+    transform: translate(2px, -2px);
+  }
+
+  100% {
+    transform: translate(0);
+  }
+}
+
+.glitch-error {
+  animation: glitch 0.3s infinite;
+}
+
+/* Scan line effect */
+@keyframes scan-line {
+  0% {
+    transform: translateY(-100%);
+  }
+
+  100% {
+    transform: translateY(100%);
+  }
+}
+
+.scan-line::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(137, 180, 250, 0.3);
+  animation: scan-line 8s linear infinite;
+  pointer-events: none;
+}
+
+/* Terminal typing effect */
+@keyframes typing {
+  from {
+    width: 0;
+  }
+
+  to {
+    width: 100%;
+  }
+}
+
+.typing-effect {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typing 1s steps(40, end);
+}
+
+/* Data packet moving along edge */
+@keyframes packet-flow {
+  0% {
+    offset-distance: 0%;
+  }
+
+  100% {
+    offset-distance: 100%;
+  }
+}
+
+.packet-flow {
+  animation: packet-flow 2s linear infinite;
 }

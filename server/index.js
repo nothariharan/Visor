@@ -11,7 +11,7 @@ const { MultiRuntimeDetector } = require('./project/detection/MultiRuntimeDetect
 const { ProcessRunner } = require('./runner/ProcessRunner');
 
 const app = express();
-const PORT = process.env.PORT || 3333;
+const PORT = process.env.PORT || 3000;
 const ROOT_DIR = process.cwd(); // Run on current directory
 
 let config = {};
@@ -177,7 +177,7 @@ app.get('/error-reporter.js', (req, res) => {
         const scriptPath = path.join(__dirname, 'injector/error-reporter.js');
         if (fs.existsSync(scriptPath)) {
             let script = fs.readFileSync(scriptPath, 'utf-8');
-            
+
             // Inject the workingDir if provided
             const workingDir = req.query.cwd || '';
             if (workingDir) {
@@ -187,7 +187,7 @@ app.get('/error-reporter.js', (req, res) => {
                     `const WORKING_DIR = "${workingDir.replace(/\\/g, '\\\\')}";`
                 );
             }
-            
+
             res.type('application/javascript').send(script);
         } else {
             res.status(404).send('// Error reporter script not found');
