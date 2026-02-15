@@ -4,9 +4,31 @@ import Search from './components/Search';
 import CodeEditor from './components/CodeEditor';
 import RunControls from './components/RunControls';
 import ErrorToast from './components/ErrorToast';
+import io from 'socket.io-client';
+import useStore from './store';
 
 
 function App() {
+  const { handleExecutionError, clearErrors } = useStore();
+
+  React.useEffect(() => {
+    // Global Socket for App-wide Events (Error Visualization)
+    // This ensures we only have ONE listener for the graph state
+    const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+    const socket = io(socketUrl);
+
+    socket.on('execution:error', (data) => {
+      console.log('[App] Global execution error received:', data);
+      handleExecutionError(data);
+    });
+
+    socket.on('errors:cleared', () => {
+      clearErrors();
+    });
+
+    return () => socket.close();
+  }, [handleExecutionError, clearErrors]);
+
   return (
     <div className="App">
       <div className="absolute top-4 left-4 z-50 bg-slate-800/90 backdrop-blur-md px-5 py-3 rounded-xl border border-slate-700 shadow-2xl">
@@ -19,7 +41,6 @@ function App() {
       <RunControls />
       <ErrorToast />
     </div>
-
   );
 }
 

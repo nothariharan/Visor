@@ -7,27 +7,37 @@ class ProcessRunner extends EventEmitter {
         super();
         this.projectRoot = projectRoot || process.cwd();
         this.processes = new Map();
+        this.activeProcessId = null;
 
         // Add tracer
         this.tracer = new ExecutionTracer(this.projectRoot);
 
         // Forward tracer events
-        this.tracer.on('error:detected', (data) => {
-          this.emit('execution:error', data);
+        this.tracer.on('execution:error', (data) => {
+            this.emit('execution:error', { ...data, processId: this.activeProcessId });
         });
 
         this.tracer.on('warning:detected', (data) => {
-          this.emit('execution:warning', data);
+            this.emit('execution:warning', data);
         });
 
         this.tracer.on('file:executed', (data) => {
-          this.emit('execution:trace', data);
+            this.emit('execution:trace', data);
         });
     }
 
-    /**
-     * Start a new process
-     */
+    handleBrowserError(errorData) {
+        // Inject working directory from active process if available and not provided
+        if (!errorData.workingDir && this.activeProcessId) {
+            const activeProc = this.processes.get(this.activeProcessId);
+            if (activeProc && activeProc.cwd) {
+                // console.log(`[ProcessRunner] Using CWD from active process ${this.activeProcessId}: ${activeProc.cwd}`);
+                errorData.workingDir = activeProc.cwd;
+            }
+        }
+        this.tracer.processBrowserError(errorData);
+    }
+
     start(id, command, cwd) {
         // Stop existing process with same ID first
         this.stop(id);
@@ -50,6 +60,9 @@ class ProcessRunner extends EventEmitter {
             status: 'running',
             cwd
         });
+
+        // Set active process for error tracking
+        this.activeProcessId = id;
 
         // Handle stdout
         proc.stdout.on('data', (data) => {
@@ -81,6 +94,11 @@ class ProcessRunner extends EventEmitter {
             if (procData) {
                 procData.status = 'stopped';
                 procData.exitCode = code;
+            }
+
+            // Clear active process if this was the active one
+            if (this.activeProcessId === id) {
+                this.activeProcessId = null;
             }
 
             this.emit('exit', {

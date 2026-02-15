@@ -15,8 +15,86 @@ const useStore = create((set, get) => ({
     editingFile: null, // { path: string, content: string, originalContent: string }
     isSaving: false,
     activeRunDir: null, // Absolute path to directory for RunControls detection (null = project root)
+    activeErrors: {}, // { [normalizedFilePath]: { message, line, stack, timestamp } }
 
     setActiveRunDir: (dir) => set({ activeRunDir: dir }),
+
+    // ===== Centralized Error Handling =====
+    handleExecutionError: (errorData) => {
+        const { executionPath, primaryFile, error } = errorData;
+        const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+
+        const normalizedPrimary = normalize(primaryFile);
+        const newErrors = { ...get().activeErrors };
+
+        // Register the primary error
+        if (normalizedPrimary) {
+            newErrors[normalizedPrimary] = {
+                message: error.message,
+                line: error.stack?.[0]?.line,
+                timestamp: Date.now(),
+                type: 'error'
+            };
+        }
+
+        // Highlight Edges
+        // Determine all nodes involved (files AND folders)
+        const implicatedNodeIds = new Set();
+        const nodes = get().nodes;
+
+        // Helper to find actual graph node ID
+        const findGraphNodeId = (searchPath) => {
+            const searchNorm = normalize(searchPath);
+            // DEBUG: Log first few nodes to check format
+            // if (searchPath.endsWith('main.jsx')) {
+            //      console.log('[Store] Match Attempt:', { 
+            //          search: searchPath, 
+            //          searchNorm,
+            //          sampleNode: nodes[0]?.id,
+            //          sampleNodeNorm: normalize(nodes[0]?.id) 
+            //      });
+            // }
+
+            const match = nodes.find(n => {
+                const nodeNorm = normalize(n.id);
+                // console.log(`[Store] Compare: ${nodeNorm} === ${searchNorm}`);
+                return nodeNorm === searchNorm;
+            });
+
+            if (match) {
+                console.log('[Store] ✅ Found Node Match:', match.id);
+                return match.id;
+            } else {
+                console.log('[Store] ❌ No Match for:', searchNorm);
+            }
+            return null;
+        };
+
+        executionPath.forEach(frame => {
+            const fileNodeId = findGraphNodeId(frame.file);
+            if (fileNodeId) {
+                implicatedNodeIds.add(fileNodeId);
+
+                // Walk up directories
+                const parts = normalize(fileNodeId).split('/');
+                parts.pop(); // remove filename
+                while (parts.length > 0) {
+                    const folderPath = parts.join('/');
+                    const folderNodeId = findGraphNodeId(folderPath);
+                    if (folderNodeId) implicatedNodeIds.add(folderNodeId);
+                    parts.pop();
+                }
+            }
+        });
+
+        get().highlightExecutionPath(Array.from(implicatedNodeIds), 'error');
+        set({ activeErrors: newErrors });
+    },
+
+    clearErrors: () => {
+        set({ activeErrors: {} });
+        get().clearExecutionPath();
+    },
 
     // ===== ORGANIZE: Critical Path Filter (100% client-side) =====
     organizeGraph: (mode) => {

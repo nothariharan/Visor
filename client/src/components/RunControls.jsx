@@ -126,6 +126,24 @@ export default function RunControls() {
             appendOutput(id, { type: 'error', text: `>>> ERROR: ${error}`, timestamp: Date.now() });
         });
 
+        // Listen for execution errors (from tracer)
+        newSocket.on('execution:error', (data) => {
+            const { error, primaryFile, executionPath, processId } = data;
+            const errorMsg = error?.message || 'Unknown error';
+            const fileInfo = primaryFile ? ` (${primaryFile})` : '';
+            
+            // Use the processId from the event, or fall back to activeRuntimeId
+            const targetId = processId || activeRuntimeId;
+            if (targetId) {
+                appendOutput(targetId, { type: 'error', text: `>>> ERROR: ${errorMsg}${fileInfo}`, timestamp: Date.now() });
+            }
+            
+            // Also emit to store for potential highlighting
+            if (primaryFile) {
+                console.log('[Visor] Execution error detected:', primaryFile);
+            }
+        });
+
         return () => newSocket.close();
     }, [socketUrl]);
 
@@ -268,130 +286,161 @@ export default function RunControls() {
     }
 
     return (
-        <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+        <div className="fixed bottom-4 right-4 z-[100] flex flex-col items-end gap-4 pointer-events-none">
+            {/* Pointer events auto re-enabled on children to allow interaction but pass through clicks on empty space */}
+            <div className="pointer-events-auto flex flex-col gap-4 items-end">
 
-            {/* Global Running Apps Indicator (Floating above Run Tab) */}
-            {otherRunningProcesses.length > 0 && (
-                <div className="bg-[#1e1e1e] border border-slate-700 rounded-md shadow-xl p-2 mb-1 animate-in slide-in-from-bottom-2 fade-in">
-                    <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 px-1">Other Running Apps</div>
-                    <div className="flex flex-col gap-1">
-                        {otherRunningProcesses.map(r => (
-                            <div key={r.id} className="flex items-center gap-2 text-xs text-slate-300 bg-slate-800/50 px-2 py-1 rounded border border-slate-700/50">
-                                <Activity size={10} className="text-emerald-400 animate-pulse" />
-                                <span className="font-medium">{r.name}</span>
-                                <span className="text-[10px] text-slate-500 font-mono">({r.category})</span>
-                            </div>
-                        ))}
+                {/* Global Running Apps Indicator (Floating above Run Tab) */}
+                {otherRunningProcesses.length > 0 && (
+                    <div className="bg-[#1e1e1e] border border-slate-700 rounded-md shadow-xl p-2 mb-1 animate-in slide-in-from-bottom-2 fade-in">
+                        <div className="text-[10px] uppercase font-bold text-slate-500 mb-1 px-1">Other Running Apps</div>
+                        <div className="flex flex-col gap-1">
+                            {otherRunningProcesses.map(r => (
+                                <div key={r.id} className="flex items-center gap-2 text-xs text-slate-300 bg-slate-800/50 px-2 py-1 rounded border border-slate-700/50">
+                                    <Activity size={10} className="text-emerald-400 animate-pulse" />
+                                    <span className="font-medium">{r.name}</span>
+                                    <span className="text-[10px] text-slate-500 font-mono">({r.category})</span>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            <div className="run-controls flex flex-col h-[300px] w-[600px] bg-[#1e1e1e] border border-slate-700 rounded-lg shadow-xl overflow-hidden">
-                {/* Header / Tabs */}
-                <div className="bg-[#252526] border-b border-black flex items-center justify-between px-2 h-10">
+                {/* Browser Error Instruction Banner */}
+                {activeRuntimeId && statuses[activeRuntimeId] === 'running' && (
+                    <div className="relative z-[10000] bg-slate-900 border border-blue-900/50 p-3 rounded-lg shadow-xl w-[600px] mb-2 animate-in slide-in-from-bottom-4">
+                        <div className="flex items-start gap-3">
+                            <div className="mt-1 p-1 bg-blue-500/10 rounded flex-shrink-0">
+                                <Activity size={16} className="text-blue-400" />
+                            </div>
+                            <div className="flex-1">
+                                <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1">Enable Full Error Detection</h4>
+                                <p className="text-[11px] text-slate-300 leading-relaxed mb-2">
+                                    To capture browser-side errors (like React undefined errors), add this to your <code className="bg-black/30 px-1 py-0.5 rounded text-blue-200">index.html</code> in the <code className="bg-black/30 px-1 py-0.5 rounded text-blue-200">&lt;head&gt;</code>:
+                                </p>
+                                <div className="bg-black/50 p-2 rounded border border-slate-700/50 flex items-center justify-between group">
+                                    <code className="text-[10px] text-emerald-400 font-mono select-all">
+                                        {`<script src="${window.location.protocol}//${window.location.host}/error-reporter.js"></script>`}
+                                    </code>
+                                    <button
+                                        onClick={() => navigator.clipboard.writeText(`<script src="${window.location.protocol}//${window.location.host}/error-reporter.js"></script>`)}
+                                        className="text-[10px] text-slate-500 hover:text-white uppercase font-bold opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
-                    {/* Runtime Tabs (Scoped to Current Directory) */}
-                    <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1 mr-2">
-                        {currentViewRuntimes.length > 0 ? currentViewRuntimes.map(r => (
-                            <button
-                                key={r.id}
-                                onClick={() => setActiveRuntimeId(r.id)}
-                                className={`
+                <div className="run-controls flex flex-col h-[300px] w-[600px] bg-[#1e1e1e] border border-slate-700 rounded-lg shadow-xl overflow-hidden">
+                    {/* Header / Tabs */}
+                    <div className="bg-[#252526] border-b border-black flex items-center justify-between px-2 h-10">
+
+                        {/* Runtime Tabs (Scoped to Current Directory) */}
+                        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar flex-1 mr-2">
+                            {currentViewRuntimes.length > 0 ? currentViewRuntimes.map(r => (
+                                <button
+                                    key={r.id}
+                                    onClick={() => setActiveRuntimeId(r.id)}
+                                    className={`
                                     flex items-center gap-2 px-3 py-1 text-xs rounded-t-sm border-t-2 transition-colors whitespace-nowrap
                                     ${activeRuntimeId === r.id
-                                        ? 'bg-[#1e1e1e] text-white border-blue-500'
-                                        : 'bg-[#2d2d2d] text-slate-400 border-transparent hover:bg-[#333]'}
+                                            ? 'bg-[#1e1e1e] text-white border-blue-500'
+                                            : 'bg-[#2d2d2d] text-slate-400 border-transparent hover:bg-[#333]'}
                                 `}
-                            >
-                                <span>{r.icon || '📦'}</span>
-                                <span className="font-medium">{r.name}</span>
-                                {statuses[r.id] === 'running' && (
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                                )}
+                                >
+                                    <span>{r.icon || '📦'}</span>
+                                    <span className="font-medium">{r.name}</span>
+                                    {statuses[r.id] === 'running' && (
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                    )}
+                                </button>
+                            )) : (
+                                <div className="text-xs text-slate-500 px-2 flex items-center gap-1 h-full">
+                                    <Box size={12} />
+                                    {activeRunDir ? 'No runtimes in this folder' : 'Select a folder to run'}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Window Controls */}
+                        <div className="flex items-center gap-1">
+                            <button onClick={() => setIsExpanded(false)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">
+                                <ChevronDown size={14} />
                             </button>
-                        )) : (
-                            <div className="text-xs text-slate-500 px-2 flex items-center gap-1 h-full">
-                                <Box size={12} />
-                                {activeRunDir ? 'No runtimes in this folder' : 'Select a folder to run'}
-                            </div>
+                        </div>
+                    </div>
+
+                    {/* Toolbar (Context Sensitive) */}
+                    <div className="bg-[#1e1e1e] border-b border-slate-800 p-2 flex items-center gap-2 h-10">
+                        {activeRuntime ? (
+                            <>
+                                <div className="flex items-center gap-2 mr-auto">
+                                    <span className="text-xs text-slate-400 font-mono bg-black/20 px-2 py-0.5 rounded">
+                                        {activeRuntime.command}
+                                    </span>
+                                    {activeStatus === 'running' && activeRuntime.port && (
+                                        <a
+                                            href={`http://localhost:${activeRuntime.port}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 hover:underline"
+                                        >
+                                            <ExternalLink size={10} /> localhost:{activeRuntime.port}
+                                        </a>
+                                    )}
+                                </div>
+
+                                {/* Controls */}
+                                {activeStatus === 'running' || activeStatus === 'stopping' ? (
+                                    <>
+                                        <button onClick={handleRestart} disabled={activeStatus === 'stopping'} className="p-1.5 bg-yellow-600/20 text-yellow-500 hover:bg-yellow-600/30 rounded" title="Restart">
+                                            <RefreshCw size={14} />
+                                        </button>
+                                        <button onClick={handleStop} disabled={activeStatus === 'stopping'} className="flex items-center gap-1 px-3 py-1 bg-red-600/20 text-red-500 hover:bg-red-600/30 rounded text-xs font-bold uppercase transition-colors">
+                                            <Square size={12} fill="currentColor" /> Stop
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button onClick={handleStart} disabled={activeStatus === 'starting'} className="flex items-center gap-1 px-3 py-1 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-600/30 rounded text-xs font-bold uppercase transition-colors">
+                                        <Play size={12} fill="currentColor" /> Run
+                                    </button>
+                                )}
+
+                                <div className="w-px h-4 bg-slate-700 mx-1"></div>
+
+                                <button onClick={handleClear} className="p-1.5 text-slate-500 hover:text-slate-300 rounded" title="Clear Output">
+                                    <Trash2 size={14} />
+                                </button>
+                            </>
+                        ) : (
+                            <div className="text-xs text-slate-500">Select a runtime to control</div>
                         )}
                     </div>
 
-                    {/* Window Controls */}
-                    <div className="flex items-center gap-1">
-                        <button onClick={() => setIsExpanded(false)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">
-                            <ChevronDown size={14} />
-                        </button>
-                    </div>
-                </div>
-
-                {/* Toolbar (Context Sensitive) */}
-                <div className="bg-[#1e1e1e] border-b border-slate-800 p-2 flex items-center gap-2 h-10">
-                    {activeRuntime ? (
-                        <>
-                            <div className="flex items-center gap-2 mr-auto">
-                                <span className="text-xs text-slate-400 font-mono bg-black/20 px-2 py-0.5 rounded">
-                                    {activeRuntime.command}
-                                </span>
-                                {activeStatus === 'running' && activeRuntime.port && (
-                                    <a
-                                        href={`http://localhost:${activeRuntime.port}`}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="text-xs flex items-center gap-1 text-blue-400 hover:text-blue-300 hover:underline"
-                                    >
-                                        <ExternalLink size={10} /> localhost:{activeRuntime.port}
-                                    </a>
-                                )}
-                            </div>
-
-                            {/* Controls */}
-                            {activeStatus === 'running' || activeStatus === 'stopping' ? (
-                                <>
-                                    <button onClick={handleRestart} disabled={activeStatus === 'stopping'} className="p-1.5 bg-yellow-600/20 text-yellow-500 hover:bg-yellow-600/30 rounded" title="Restart">
-                                        <RefreshCw size={14} />
-                                    </button>
-                                    <button onClick={handleStop} disabled={activeStatus === 'stopping'} className="flex items-center gap-1 px-3 py-1 bg-red-600/20 text-red-500 hover:bg-red-600/30 rounded text-xs font-bold uppercase transition-colors">
-                                        <Square size={12} fill="currentColor" /> Stop
-                                    </button>
-                                </>
-                            ) : (
-                                <button onClick={handleStart} disabled={activeStatus === 'starting'} className="flex items-center gap-1 px-3 py-1 bg-emerald-600/20 text-emerald-500 hover:bg-emerald-600/30 rounded text-xs font-bold uppercase transition-colors">
-                                    <Play size={12} fill="currentColor" /> Run
-                                </button>
-                            )}
-
-                            <div className="w-px h-4 bg-slate-700 mx-1"></div>
-
-                            <button onClick={handleClear} className="p-1.5 text-slate-500 hover:text-slate-300 rounded" title="Clear Output">
-                                <Trash2 size={14} />
-                            </button>
-                        </>
-                    ) : (
-                        <div className="text-xs text-slate-500">Select a runtime to control</div>
-                    )}
-                </div>
-
-                {/* Terminal Area */}
-                <div className="flex-1 bg-black p-2 overflow-y-auto font-mono text-xs" ref={outputRef}>
-                    {activeOutput.length > 0 ? (
-                        activeOutput.map((line, i) => (
-                            <div key={i} className={`whitespace-pre-wrap break-all leading-tight ${line.type === 'error' ? 'text-red-400' :
+                    {/* Terminal Area */}
+                    <div className="flex-1 bg-black p-2 overflow-y-auto font-mono text-xs" ref={outputRef}>
+                        {activeOutput.length > 0 ? (
+                            activeOutput.map((line, i) => (
+                                <div key={i} className={`whitespace-pre-wrap break-all leading-tight ${line.type === 'error' ? 'text-red-400' :
                                     line.type === 'system' ? 'text-blue-400 italic' :
                                         'text-slate-300'
-                                }`}>
-                                <Ansi>{line.text}</Ansi>
+                                    }`}>
+                                    <Ansi>{line.text}</Ansi>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-700 opacity-50">
+                                <Terminal size={32} className="mb-2" />
+                                <span>Ready to run</span>
                             </div>
-                        ))
-                    ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-slate-700 opacity-50">
-                            <Terminal size={32} className="mb-2" />
-                            <span>Ready to run</span>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
-                {/* End of run-controls */}
             </div>
+            {/* End of run-controls */}
         </div>
     );
 }

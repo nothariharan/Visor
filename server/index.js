@@ -156,7 +156,6 @@ const processRunner = new ProcessRunner(ROOT_DIR);
 processRunner.on('output', (data) => io.emit('process:output', data));
 processRunner.on('exit', (data) => io.emit('process:exit', data));
 processRunner.on('error', (data) => io.emit('process:error', data));
-
 // Forward execution events to WebSocket
 processRunner.on('execution:error', (data) => {
     io.emit('execution:error', data);
@@ -168,6 +167,41 @@ processRunner.on('execution:warning', (data) => {
 
 processRunner.on('execution:trace', (data) => {
     io.emit('execution:trace', data);
+});
+
+// --- Browser Error Handling ---
+
+// Serve the error reporter script (with optional workingDir parameter)
+app.get('/error-reporter.js', (req, res) => {
+    try {
+        const scriptPath = path.join(__dirname, 'injector/error-reporter.js');
+        if (fs.existsSync(scriptPath)) {
+            let script = fs.readFileSync(scriptPath, 'utf-8');
+            
+            // Inject the workingDir if provided
+            const workingDir = req.query.cwd || '';
+            if (workingDir) {
+                // Replace the default empty string with the actual working directory
+                script = script.replace(
+                    'const WORKING_DIR = "";',
+                    `const WORKING_DIR = "${workingDir.replace(/\\/g, '\\\\')}";`
+                );
+            }
+            
+            res.type('application/javascript').send(script);
+        } else {
+            res.status(404).send('// Error reporter script not found');
+        }
+    } catch (error) {
+        res.status(500).send('// Error loading script');
+    }
+});
+
+// API: Receive browser errors
+app.post('/api/browser-error', (req, res) => {
+    const { message, filename, line, column, stack, type } = req.body;
+    processRunner.handleBrowserError({ message, filename, line, column, stack, type });
+    res.json({ received: true });
 });
 
 // API: Detect project (Legacy support + New Endpoint)

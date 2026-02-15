@@ -8,18 +8,37 @@ const FolderNode = ({ id, data, isConnectable }) => {
     const { toggleFolder, expandedFolders, setActiveRunDir } = useStore();
     const isExpanded = expandedFolders.has(id);
 
+    const { activeErrors } = useStore();
+
+    // Check if this folder contains any active error
+    const hasError = React.useMemo(() => {
+        const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+        const normalizedId = normalize(id);
+
+        return Object.keys(activeErrors).some(errorPath => {
+            return errorPath.startsWith(normalizedId + '/');
+        });
+    }, [activeErrors, id]);
+
+    const executionState = hasError ? { type: 'error' } : null;
+
     const handleClick = (e) => {
         e.stopPropagation(); // Prevent canvas click
         toggleFolder(id);
         setActiveRunDir(id); // Update RunControls to detect this directory
     };
 
+    // Visual Overrides for Error
+    const errorStyle = executionState?.type === 'error'
+        ? 'border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.4)] bg-red-900/20'
+        : '';
+
     // Group/Container Style for Expanded Folders
     if (isExpanded) {
         return (
             <div
                 onClick={handleClick}
-                className="relative rounded-lg border-2 border-slate-600 bg-slate-800/50 transition-colors group"
+                className={`relative rounded-lg border-2 border-slate-600 bg-slate-800/50 transition-colors group ${errorStyle}`}
                 style={{ width: data.width, height: data.height }}
             >
 
@@ -55,7 +74,7 @@ const FolderNode = ({ id, data, isConnectable }) => {
     return (
         <div
             onClick={handleClick}
-            className={`px-4 py-2 shadow-md rounded-md bg-indigo-900/40 border border-indigo-500/50 hover:border-blue-400 cursor-pointer min-w-[150px] transition-all backdrop-blur-sm`}
+            className={`px-4 py-2 shadow-md rounded-md bg-indigo-900/40 border border-indigo-500/50 hover:border-blue-400 cursor-pointer min-w-[150px] transition-all backdrop-blur-sm ${errorStyle}`}
         >
             <Handle type="target" position={Position.Left} isConnectable={isConnectable} className="!bg-slate-500" />
 

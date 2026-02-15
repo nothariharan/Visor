@@ -67,34 +67,19 @@ const GraphContent = () => {
         }
     }, [nodes.length, loading, fitView]);
 
-    // Subscribe to execution events for path highlighting
+    // Subscribe to events (Trace only, Error is handled by Store globally)
     useEffect(() => {
-        const handleError = (data) => {
-            const { executionPath } = data;
-            const pathNodeIds = executionPath.map(frame => frame.file);
-            highlightExecutionPath(pathNodeIds, 'error');
-        };
-
         const handleTrace = (data) => {
-            // For trace, we might want to highlight just the active file or a small path
-            // For now, let's just highlight the single file as "executing"
-            // But highlightExecutionPath expects a list of nodes to find edges between.
-            // If we only have one node, no edges will be highlighted.
-            // We need at least 2 nodes to highlight an edge.
-            // Ideally backend sends "source -> target" trace.
-            // Current implementation only sends "file executed".
-            // So we can't easily highlight edges for single file trace without history.
-            // Skipping edge highlight for single file trace for now, node highlight is handled in CustomNode.
+            // Trace logic can remain here or move to store later
+            // For now, let's just leave it as is, or remove if unused
         };
 
-        socket.on('execution:error', handleError);
         socket.on('execution:trace', handleTrace);
 
         return () => {
-            socket.off('execution:error', handleError);
             socket.off('execution:trace', handleTrace);
         };
-    }, [highlightExecutionPath]);
+    }, []);
 
 
     const onNodeMouseEnter = useCallback((event, node) => {
