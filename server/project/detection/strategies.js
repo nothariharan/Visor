@@ -405,9 +405,6 @@ class SubdirectoryStrategy extends DetectionStrategy {
             }
         }
 
-        // Check for other languages...
-        // (Ruby, Go, Rust, etc.)
-
         return null;
     }
 
@@ -419,17 +416,39 @@ class SubdirectoryStrategy extends DetectionStrategy {
         if (!pkg) return null;
 
         const scripts = pkg.scripts || {};
-        const devScript = scripts.dev || scripts.start || scripts.serve;
+        let command = '';
 
-        if (!devScript) return null;
+        // Priority 1: Smart script detection
+        if (scripts.dev) command = 'npm run dev';
+        else if (scripts.start) command = 'npm start';
+        else if (scripts.serve) command = 'npm run serve';
 
-        const scriptName = scripts.dev ? 'dev' : scripts.start ? 'start' : 'serve';
+        // Priority 2: Backend file detection fallback
+        if (!command && (category === 'backend' || category === 'api')) {
+            // Look for common entry files
+            const candidates = ['index.js', 'server.js', 'app.js', 'main.js', 'api.js'];
+
+            for (const file of candidates) {
+                if (await this.fileExists(path.join(dirName, file))) {
+                    command = `node ${file}`;
+                    break;
+                }
+            }
+
+            // Check if package.json has "main" field
+            if (!command && pkg.main && await this.fileExists(path.join(dirName, pkg.main))) {
+                command = `node ${pkg.main}`;
+            }
+        }
+
+        if (!command) return null;
+
         const framework = this.detectFramework(pkg);
 
         return {
             id: `subdir-${dirName}`,
             name: dirName.charAt(0).toUpperCase() + dirName.slice(1),
-            command: `npm run ${scriptName}`,
+            command: command,
             workingDir: path.join(this.projectRoot, dirName),
             type: 'subdirectory',
             framework,
@@ -556,16 +575,35 @@ class RootProjectStrategy extends DetectionStrategy {
                 return [];
             }
 
-            const devScript = scripts.dev || scripts.start;
-            if (!devScript) return [];
+            let command = '';
+            if (scripts.dev) command = 'npm run dev';
+            else if (scripts.start) command = 'npm start';
 
-            const scriptName = scripts.dev ? 'dev' : 'start';
+            // Fallback: Check for common entry points if no script
+            if (!command) {
+                const candidates = ['server.js', 'app.js', 'index.js', 'main.js'];
+                for (const file of candidates) {
+                    if (await this.fileExists(file)) {
+                        command = `node ${file}`;
+                        break;
+                    }
+                }
+
+                if (!command && pkg.main && await this.fileExists(pkg.main)) {
+                    command = `node ${pkg.main}`;
+                }
+            }
+
+            if (!command) return [];
+
+            // Extract script name if it's an npm run command, else use custom
+            const scriptName = command.startsWith('npm run') ? command.split(' ')[2] : 'custom';
             const framework = this.detectFramework(pkg);
 
             return [{
                 id: 'root',
                 name: pkg.name || 'Main Project',
-                command: `npm run ${scriptName}`,
+                command: command,
                 workingDir: this.projectRoot,
                 type: 'root',
                 framework,

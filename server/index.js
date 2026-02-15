@@ -6,11 +6,12 @@ const path = require('path');
 const chokidar = require('chokidar');
 const { generateGraph, getCachedGraph } = require('./graph');
 const { getGitMetadata } = require('./git');
-const { ProjectDetector } = require('./project/ProjectDetector');
+// const { ProjectDetector } = require('./project/ProjectDetector');
+const { MultiRuntimeDetector } = require('./project/detection/MultiRuntimeDetector');
 const { ProcessRunner } = require('./runner/ProcessRunner');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3333;
 const ROOT_DIR = process.cwd(); // Run on current directory
 
 let config = {};
@@ -158,26 +159,67 @@ processRunner.on('error', (data) => io.emit('process:error', data));
 
 // Forward execution events to WebSocket
 processRunner.on('execution:error', (data) => {
-  io.emit('execution:error', data);
+    io.emit('execution:error', data);
 });
 
 processRunner.on('execution:warning', (data) => {
-  io.emit('execution:warning', data);
+    io.emit('execution:warning', data);
 });
 
 processRunner.on('execution:trace', (data) => {
-  io.emit('execution:trace', data);
+    io.emit('execution:trace', data);
 });
 
-// API: Detect project (accepts optional ?path= for subdirectory detection)
+// API: Detect project (Legacy support + New Endpoint)
 app.get('/api/project/detect', async (req, res) => {
     try {
         const targetDir = req.query.path || ROOT_DIR;
-        const detector = new ProjectDetector(targetDir);
-        const result = await detector.detect();
-        result.cwd = targetDir; // Tell frontend which dir was detected
-        res.json(result);
+        // Use MultiRuntimeDetector for better detection
+        const detector = new MultiRuntimeDetector(targetDir);
+        const runtimes = await detector.detectAll();
+
+        // Backward Compatibility for old frontend (which expects 'commands' array)
+        let legacyResponse = { runtimes };
+
+        if (runtimes.length > 0) {
+            const primary = runtimes[0];
+            legacyResponse = {
+                ...legacyResponse,
+                type: primary.category || 'custom',
+                framework: primary.name,
+                defaultPort: primary.port,
+                commands: runtimes.map(r => ({
+                    name: r.name,
+                    command: r.command,
+                    icon: r.icon,
+                    primary: r === primary
+                }))
+            };
+        } else {
+            legacyResponse = {
+                ...legacyResponse,
+                type: 'unknown',
+                framework: 'unknown',
+                commands: [],
+                message: 'Could not auto-detect project type'
+            };
+        }
+
+        res.json(legacyResponse);
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/runtimes/detect', async (req, res) => {
+    try {
+        const targetDir = req.query.path || ROOT_DIR;
+        // Decode path if it comes from query
+        const detector = new MultiRuntimeDetector(targetDir);
+        const runtimes = await detector.detectAll();
+        res.json({ runtimes });
+    } catch (error) {
+        console.error("Detection error:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -220,14 +262,14 @@ app.get('/api/process/list', (req, res) => {
 
 // API: Get current execution states
 app.get('/api/execution/states', (req, res) => {
-  const states = processRunner.getExecutionStates();
-  res.json(states);
+    const states = processRunner.getExecutionStates();
+    res.json(states);
 });
 
 // API: Clear errors
 app.post('/api/execution/clear-errors', (req, res) => {
-  processRunner.clearErrors();
-  res.json({ success: true });
+    processRunner.clearErrors();
+    res.json({ success: true });
 });
 
 // SPA Catch-all (for client-side routing)
