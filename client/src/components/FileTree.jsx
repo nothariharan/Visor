@@ -31,7 +31,7 @@ const FileTreeNode = ({ node, level = 0, onToggle, onSelect }) => {
             <div
                 onClick={handleClick}
                 className={`flex items-center py-1 pr-2 cursor-pointer select-none transition-colors rounded-sm
-                    ${isSelected ? 'bg-blue-500/20 text-blue-200' : 'text-slate-300 hover:bg-slate-800'}
+                    ${isSelected ? 'bg-blue/20 text-blue' : 'text-subtext1 hover:bg-surface0'}
                 `}
             >
                 <div className="w-4 h-4 mr-1 flex items-center justify-center shrink-0">
@@ -65,13 +65,12 @@ const FileTreeNode = ({ node, level = 0, onToggle, onSelect }) => {
 const FileTree = () => {
     const { nodes, toggleFolder, setFocusedNode, openFile } = useStore();
     const [treeData, setTreeData] = useState([]);
-    const [isVisible, setIsVisible] = useState(true);
 
     // Convert flat node list to tree structure
     useEffect(() => {
         const buildTree = () => {
-            // Filter only file/folder nodes from the graph
-            const graphNodes = nodes.filter(n => n.type === 'folder' || n.type === 'custom');
+            // Filter only file/folder nodes from the graph AND only those that aren't hidden
+            const graphNodes = nodes.filter(n => (n.type === 'folder' || n.type === 'custom') && !n.hidden);
 
             const tree = [];
             const idMap = {};
@@ -95,7 +94,9 @@ const FileTree = () => {
                 if (n.parentNode && idMap[n.parentNode]) {
                     idMap[n.parentNode].children.push(idMap[n.id]);
                 } else {
-                    // It's a root node in the graph context
+                    // It's a root node in the graph context (or its parent is hidden)
+                    // If it has a parentNode but that parent isn't in our current (filtered) idMap,
+                    // we treat it as a root for the purpose of the sidebar view.
                     tree.push(idMap[n.id]);
                 }
             });
@@ -119,38 +120,13 @@ const FileTree = () => {
         }
     };
 
-    if (!isVisible) {
-        return (
-            <div className="absolute top-20 left-0 z-40">
-                <button
-                    onClick={() => setIsVisible(true)}
-                    className="bg-slate-800 p-2 rounded-r-md border border-l-0 border-slate-700 text-slate-400 hover:text-white shadow-md"
-                    title="Show Project Structure"
-                >
-                    <ChevronRight size={16} />
-                </button>
-            </div>
-        );
-    }
-
     return (
-        <div className="absolute top-20 left-4 bottom-20 w-64 bg-slate-900/90 backdrop-blur-md border border-slate-700 rounded-xl shadow-2xl flex flex-col z-40 transition-all duration-300">
-            <div className="p-3 border-b border-slate-700 flex items-center justify-between bg-slate-800/50 rounded-t-xl">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Project Structure</span>
-                <button
-                    onClick={() => setIsVisible(false)}
-                    className="text-slate-500 hover:text-white p-1 hover:bg-slate-700 rounded"
-                    title="Hide Sidebar"
-                >
-                    <ChevronDown size={16} className="rotate-90" />
-                </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+        <div className="flex-1 flex flex-col min-h-0 bg-base font-mono">
+            <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-surface1 scrollbar-track-transparent">
                 {treeData.length === 0 ? (
-                    <div className="text-center text-slate-500 text-xs mt-4 p-4 border border-dashed border-slate-700 rounded">
-                        <p>Graph is empty.</p>
-                        <p className="mt-2">Expand folders in the graph to populate this tree.</p>
+                    <div className="text-center text-subtext0 text-xs mt-10 p-4 border border-dashed border-surface1 rounded">
+                        <p>No files in view.</p>
+                        <p className="mt-2 text-[10px] opacity-70">Adjust view mode or expand folders in the graph.</p>
                     </div>
                 ) : (
                     treeData.map(node => (

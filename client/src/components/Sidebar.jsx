@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Folder, Info } from 'lucide-react';
+import FileTree from './FileTree';
 
 export default function Sidebar() {
     const [activeTab, setActiveTab] = useState('files');
@@ -35,21 +36,13 @@ export default function Sidebar() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-auto p-4 text-sm">
+            <div className="flex-1 overflow-hidden text-sm flex flex-col">
                 {activeTab === 'files' && (
-                    <div className="space-y-2">
-                        <div className="text-subtext0 text-xs italic opacity-50 text-center mt-10">
-                            File tree connected to graph...
-                        </div>
-                        {/* 
-                Placeholder: Real implementation would connect to store.nodes 
-                and render a recursive tree 
-            */}
-                    </div>
+                    <FileTree />
                 )}
 
                 {activeTab === 'info' && (
-                    <div className="space-y-4 text-xs">
+                    <div className="space-y-4 text-xs p-2">
                         <InfoBlock title="Project" items={[
                             ['Name', 'Visor Project'],
                             ['Type', 'React + Express'],
