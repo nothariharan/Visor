@@ -33,6 +33,9 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                     if (ignorePatterns.some(p => dirent.name.includes(p.replace(/\*/g, '')))) continue;
 
                     const fullPath = path.resolve(folderPath, dirent.name);
+
+                    // Prevent duplicates in visibleItems
+                    if (visibleItems.has(fullPath)) continue;
                     visibleItems.add(fullPath);
 
                     const isDirectory = dirent.isDirectory();
@@ -241,9 +244,12 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
         });
 
         const rootChildren = [];
+        const processedNodes = new Set(); // Track nodes added to hierarchy
 
         // Populate hierarchy
         nodes.forEach(n => {
+            if (processedNodes.has(n.id)) return; // Skip if already processed (though nodes should be unique now)
+
             const parentDir = path.dirname(n.id);
             const parentNode = nodeMap.get(parentDir);
             const elkNode = nodeMap.get(n.id);
@@ -253,6 +259,7 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 if (n.type === 'folder') {
                     // Detach sub-folder -> Root Level + Connection Line
                     rootChildren.push(elkNode);
+                    processedNodes.add(n.id);
 
                     // Add hierarchy edge
                     const edgeId = `hierarchy-${parentNode.id}-${n.id}`;
@@ -270,6 +277,7 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
                 } else {
                     // Keep file inside container
                     parentNode.children.push(elkNode);
+                    processedNodes.add(n.id);
 
                     // Add containment edge (visible when file is dragged outside)
                     const containEdgeId = `contain-${parentDir}-${n.id}`;
@@ -289,6 +297,7 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
             } else {
                 // Top level visible node (or orphan)
                 rootChildren.push(elkNode);
+                processedNodes.add(n.id);
             }
         });
 
