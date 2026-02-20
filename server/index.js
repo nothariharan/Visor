@@ -106,40 +106,41 @@ app.get('/api/git', async (req, res) => {
 // Search Endpoint
 app.post('/api/search', async (req, res) => {
     const { query } = req.body;
-    if (!query) return res.json({ expandedFolders: [] });
+    if (!query) return res.json({ matches: [] });
 
     try {
         const matches = [];
-        const expandedFolders = new Set();
+        const ignoreDirs = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage']);
 
         // Recursive search helper
         async function searchDir(dir) {
-            const dirents = await fs.readdir(dir, { withFileTypes: true });
-            for (const dirent of dirents) {
-                const fullPath = path.join(dir, dirent.name);
-                if (dirent.name.startsWith('.') || dirent.name === 'node_modules' || dirent.name === 'dist' || dirent.name === 'build' || dirent.name === 'coverage') continue;
+            try {
+                const dirents = await fs.readdir(dir, { withFileTypes: true });
+                for (const dirent of dirents) {
+                    if (ignoreDirs.has(dirent.name)) continue;
 
-                if (dirent.name.toLowerCase().includes(query.toLowerCase())) {
-                    matches.push(fullPath);
-                    // Add parent directory to expandedFolders
-                    let parent = path.dirname(fullPath);
-                    // Add all ancestors up to root
-                    while (parent.length >= ROOT_DIR.length && parent.startsWith(ROOT_DIR)) {
-                        expandedFolders.add(parent);
-                        const next = path.dirname(parent);
-                        if (next === parent) break;
-                        parent = next;
+                    const fullPath = path.join(dir, dirent.name);
+
+                    if (dirent.name.toLowerCase().includes(query.toLowerCase())) {
+                        matches.push({
+                            path: fullPath,
+                            name: dirent.name,
+                            isDirectory: dirent.isDirectory(),
+                            relativePath: path.relative(ROOT_DIR, dir)
+                        });
+                    }
+
+                    if (dirent.isDirectory()) {
+                        await searchDir(fullPath);
                     }
                 }
-
-                if (dirent.isDirectory()) {
-                    await searchDir(fullPath);
-                }
+            } catch (e) {
+                // Ignore permission errors etc.
             }
         }
 
         await searchDir(ROOT_DIR);
-        res.json({ expandedFolders: Array.from(expandedFolders), matchCount: matches.length });
+        res.json({ matches });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
