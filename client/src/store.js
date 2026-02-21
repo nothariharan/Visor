@@ -688,7 +688,144 @@ const useStore = create((set, get) => ({
                 return edge;
             })
         });
-    }
+    },
+
+    // ===== Chronicle Git Actions =====
+    chronicleStatus: null,
+    chronicleLoading: false,
+    stagingFiles: new Set(),
+    pushPullLoading: false,
+    commitLoading: false,
+    chronicleError: null,
+
+    fetchChronicleStatus: async () => {
+        set({ chronicleLoading: true, chronicleError: null });
+        try {
+            const res = await axios.get('/api/chronicle/status');
+            if (res.data.success) {
+                set({ chronicleStatus: res.data, chronicleError: null });
+            } else {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+            }
+        } catch (err) {
+            set({ chronicleError: { message: 'Failed to fetch git status', type: 'FETCH_ERROR' } });
+        } finally {
+            set({ chronicleLoading: false });
+        }
+    },
+
+    stageFiles: async (files) => {
+        const currentStaging = new Set(get().stagingFiles);
+        files.forEach(f => currentStaging.add(f));
+        set({ stagingFiles: currentStaging });
+
+        try {
+            const res = await axios.post('/api/chronicle/stage', { files });
+            if (!res.data.success) {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+            }
+            // Auto-refresh via socket will happen, but let's be proactive
+            await get().fetchChronicleStatus();
+        } finally {
+            const nextStaging = new Set(get().stagingFiles);
+            files.forEach(f => nextStaging.delete(f));
+            set({ stagingFiles: nextStaging });
+        }
+    },
+
+    unstageFiles: async (files) => {
+        const currentStaging = new Set(get().stagingFiles);
+        files.forEach(f => currentStaging.add(f));
+        set({ stagingFiles: currentStaging });
+
+        try {
+            const res = await axios.post('/api/chronicle/unstage', { files });
+            if (!res.data.success) {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+            }
+            await get().fetchChronicleStatus();
+        } finally {
+            const nextStaging = new Set(get().stagingFiles);
+            files.forEach(f => nextStaging.delete(f));
+            set({ stagingFiles: nextStaging });
+        }
+    },
+
+    commitChanges: async (message) => {
+        set({ commitLoading: true, chronicleError: null });
+        try {
+            const res = await axios.post('/api/chronicle/commit', { message });
+            if (res.data.success) {
+                await get().fetchChronicleStatus();
+                return { success: true };
+            } else {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+                return { success: false };
+            }
+        } finally {
+            set({ commitLoading: false });
+        }
+    },
+
+    discardFiles: async (files) => {
+        try {
+            const res = await axios.post('/api/chronicle/discard', { files });
+            if (res.data.success) {
+                await get().fetchChronicleStatus();
+            } else {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+            }
+        } catch (err) {
+            set({ chronicleError: { message: 'Failed to discard changes', type: 'DISCARD_ERROR' } });
+        }
+    },
+
+    pushChanges: async () => {
+        set({ pushPullLoading: true, chronicleError: null });
+        try {
+            const res = await axios.post('/api/chronicle/push');
+            if (res.data.success) {
+                await get().fetchChronicleStatus();
+            } else {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+            }
+        } finally {
+            set({ pushPullLoading: false });
+        }
+    },
+
+    pullChanges: async () => {
+        set({ pushPullLoading: true, chronicleError: null });
+        try {
+            const res = await axios.post('/api/chronicle/pull');
+            if (res.data.success) {
+                await get().fetchChronicleStatus();
+                return { success: true };
+            } else {
+                // If merge conflict, result still might be useful to the UI
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+                await get().fetchChronicleStatus();
+                return res.data;
+            }
+        } finally {
+            set({ pushPullLoading: false });
+        }
+    },
+
+    undoLastCommit: async () => {
+        try {
+            const res = await axios.post('/api/chronicle/undo');
+            if (res.data.success) {
+                await get().fetchChronicleStatus();
+            } else {
+                set({ chronicleError: { message: res.data.error, type: res.data.type } });
+            }
+        } catch (err) {
+            set({ chronicleError: { message: 'Failed to undo commit', type: 'UNDO_ERROR' } });
+        }
+    },
+
+    clearChronicleError: () => set({ chronicleError: null })
 }));
 
 export default useStore;

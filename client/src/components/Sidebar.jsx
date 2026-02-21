@@ -1,79 +1,37 @@
 import React, { useState } from 'react';
-import { Folder, Info } from 'lucide-react';
+import { Folder, GitBranch } from 'lucide-react';
 import FileTree from './FileTree';
+import ChroniclePanel from './ChroniclePanel';
 
 export default function Sidebar() {
     const [activeTab, setActiveTab] = useState('files');
 
     return (
-        <div className="w-96 bg-crust border-r-2 border-surface1 flex flex-col">
+        <div className="w-96 bg-crust border-r-2 border-surface1 flex flex-col pt-4">
             {/* Tab Bar */}
-            <div className="h-12 border-b-2 border-surface1 flex">
+            <div className="h-10 border-b-2 border-surface1 flex px-4">
                 <button
                     onClick={() => setActiveTab('files')}
-                    className={`
-            flex-1 text-xs font-bold uppercase flex items-center justify-center gap-2
-            ${activeTab === 'files'
-                            ? 'bg-surface0 text-text border-b-2 border-peach'
-                            : 'bg-mantle text-subtext0 hover:bg-surface0'
-                        }
-          `}
+                    className={`flex-1 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider transition-all
+                        ${activeTab === 'files' ? 'text-peach border-b-2 border-peach' : 'text-subtext0 hover:text-text'}
+                    `}
                 >
                     <Folder size={14} /> Files
                 </button>
                 <button
-                    onClick={() => setActiveTab('info')}
-                    className={`
-            flex-1 text-xs font-bold uppercase flex items-center justify-center gap-2
-            ${activeTab === 'info'
-                            ? 'bg-surface0 text-text border-b-2 border-peach'
-                            : 'bg-mantle text-subtext0 hover:bg-surface0'
-                        }
-          `}
+                    onClick={() => setActiveTab('chronicle')}
+                    className={`flex-1 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider transition-all
+                        ${activeTab === 'chronicle' ? 'text-mauve border-b-2 border-mauve' : 'text-subtext0 hover:text-text'}
+                    `}
                 >
-                    <Info size={14} /> Info
+                    <GitBranch size={14} /> Chronicle
                 </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-hidden text-sm flex flex-col">
-                {activeTab === 'files' && (
-                    <FileTree />
-                )}
-
-                {activeTab === 'info' && (
-                    <div className="space-y-4 text-xs p-2">
-                        <InfoBlock title="Project" items={[
-                            ['Name', 'Visor Project'],
-                            ['Type', 'React + Express'],
-                            ['Status', 'Active']
-                        ]} />
-
-                        <InfoBlock title="System" items={[
-                            ['Node', 'v18.x'],
-                            ['OS', 'Windows'],
-                            ['Memory', 'Run "stats"']
-                        ]} />
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function InfoBlock({ title, items }) {
-    return (
-        <div className="border border-surface1 rounded p-3 bg-mantle">
-            <div className="text-peach font-bold mb-2 text-xs uppercase">
-                {title}
-            </div>
-            <div className="space-y-1">
-                {items.map(([key, value]) => (
-                    <div key={key} className="flex justify-between text-subtext0">
-                        <span>[{key.toLowerCase()}]:</span>
-                        <span className="text-text">{value}</span>
-                    </div>
-                ))}
+            <div className="flex-1 overflow-hidden">
+                {activeTab === 'files' && <FileTree />}
+                {activeTab === 'chronicle' && <ChroniclePanel />}
             </div>
         </div>
     );

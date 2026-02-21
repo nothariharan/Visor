@@ -5,8 +5,18 @@ const fs = require('fs-extra');
 const path = require('path');
 const chokidar = require('chokidar');
 const { generateGraph, getCachedGraph } = require('./graph');
-const { getGitMetadata } = require('./git');
-// const { ProjectDetector } = require('./project/ProjectDetector');
+const {
+    getGitMetadata,
+    getRepoStatus,
+    stageFiles,
+    unstageFiles,
+    commitChanges,
+    discardChanges,
+    pushChanges,
+    pullChanges,
+    getFileDiff,
+    undoLastCommit
+} = require('./git');
 const { MultiRuntimeDetector } = require('./project/detection/MultiRuntimeDetector');
 const { ProcessRunner } = require('./runner/ProcessRunner');
 
@@ -58,11 +68,6 @@ app.get('/api/files/content', async (req, res) => {
         const { path: filePath } = req.query;
         if (!filePath) return res.status(400).json({ error: 'Missing file path' });
 
-        // Resolve relative paths if needed, but usually we get full paths.
-        // If absolute, ensure it's inside ROOT_DIR for basic safety?
-        // For local dev tool, trust is implied, but let's check.
-        // Actually, node graph uses absolute paths. Let's trust it for now as it's a dev tool.
-
         const content = await fs.readFile(filePath, 'utf-8');
         res.json({ content });
     } catch (error) {
@@ -87,13 +92,12 @@ app.post('/api/files/content', async (req, res) => {
     }
 });
 
-
+// Replace the existing Git Metadata Endpoint block
 // Git Metadata Endpoint
 app.get('/api/git', async (req, res) => {
     const filePath = req.query.path;
     if (!filePath) return res.status(400).json({ error: 'Path required' });
 
-    // Ensure path is absolute and safe
     const absolutePath = path.resolve(ROOT_DIR, filePath);
     if (!absolutePath.startsWith(ROOT_DIR)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -101,6 +105,62 @@ app.get('/api/git', async (req, res) => {
 
     const metadata = await getGitMetadata(absolutePath);
     res.json(metadata);
+});
+
+// --- Chronicle Git Endpoints ---
+app.get('/api/chronicle/status', async (req, res) => {
+    const status = await getRepoStatus(ROOT_DIR);
+    res.json(status);
+});
+
+app.post('/api/chronicle/stage', async (req, res) => {
+    const { files } = req.body;
+    if (!files) return res.status(400).json({ error: 'Files required' });
+    const result = await stageFiles(ROOT_DIR, files);
+    res.json(result);
+});
+
+app.post('/api/chronicle/unstage', async (req, res) => {
+    const { files } = req.body;
+    if (!files) return res.status(400).json({ error: 'Files required' });
+    const result = await unstageFiles(ROOT_DIR, files);
+    res.json(result);
+});
+
+app.post('/api/chronicle/commit', async (req, res) => {
+    const { message } = req.body;
+    if (!message) return res.status(400).json({ error: 'Message required' });
+    const result = await commitChanges(ROOT_DIR, message);
+    res.json(result);
+});
+
+app.post('/api/chronicle/discard', async (req, res) => {
+    const { files } = req.body;
+    if (!files) return res.status(400).json({ error: 'Files required' });
+    const result = await discardChanges(ROOT_DIR, files);
+    res.json(result);
+});
+
+app.post('/api/chronicle/push', async (req, res) => {
+    const result = await pushChanges(ROOT_DIR);
+    res.json(result);
+});
+
+app.post('/api/chronicle/pull', async (req, res) => {
+    const result = await pullChanges(ROOT_DIR);
+    res.json(result);
+});
+
+app.get('/api/chronicle/diff', async (req, res) => {
+    const { path: filePath } = req.query;
+    if (!filePath) return res.status(400).json({ error: 'Path required' });
+    const result = await getFileDiff(ROOT_DIR, filePath);
+    res.json(result);
+});
+
+app.post('/api/chronicle/undo', async (req, res) => {
+    const result = await undoLastCommit(ROOT_DIR);
+    res.json(result);
 });
 
 // Search Endpoint
@@ -329,4 +389,14 @@ server.listen(PORT, async () => {
     } catch (e) {
         console.error('Initial graph analysis failed:', e);
     }
+
+    // --- File Watcher for Chronicle Auto-Refresh ---
+    chokidar.watch(ROOT_DIR, {
+        ignored: [/(^|[\/\\])\../, '**/node_modules/**', '**/dist/**', '**/build/**'],
+        persistent: true,
+        ignoreInitial: true
+    }).on('all', (event, path) => {
+        // Emit event to all connected clients
+        io.emit('chronicle:update', { event, path });
+    });
 });

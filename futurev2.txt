@@ -398,84 +398,7 @@
 
 ---
 
-### DAY 8-9: Git Integration (Visual) [16 hours]
 
-**Current Problem:** Git data exists in backend but not visible in UI.
-
-#### Implementation Plan
-
-**Backend Enhancement (4 hours):**
-
-1. **Enrich Node Data with Git**
-   - Modify `watcher.js` to call `git.js`:
-     ```javascript
-     const gitStatus = await getGitStatus(projectRoot);
-     
-     nodes.forEach(node => {
-       const status = gitStatus[node.id];
-       node.data.gitStatus = status; // 'modified', 'untracked', etc.
-     });
-     ```
-
-2. **Git File Status**
-   - Use `simple-git` to get status:
-     ```javascript
-     const git = simpleGit(projectRoot);
-     const status = await git.status();
-     // Returns: modified, not_added, deleted, etc.
-     ```
-
-**Frontend Changes (8 hours):**
-
-3. **Status Dots on Nodes**
-   - Update `TerminalNode.jsx`:
-     ```javascript
-     {data.gitStatus && (
-       <div className="git-indicator">
-         {data.gitStatus === 'modified' && '🟠'}
-         {data.gitStatus === 'untracked' && '🟢'}
-         {data.gitStatus === 'staged' && '🔵'}
-       </div>
-     )}
-     ```
-   - Position in top-right corner
-
-4. **Git Panel (Sidebar)**
-   - Create `GitPanel.jsx`:
-     - List of changed files
-     - Checkboxes to stage
-     - Commit message input
-     - Commit button
-     - Push/Pull buttons
-   - Use same sidebar tab system as file tree
-
-5. **Visual Diff**
-   - When you click changed file in Git panel:
-     - Open in editor
-     - Show diff in gutter (Monaco supports this)
-     - Green for additions, red for deletions
-
-**Polish (4 hours):**
-- Add "Discard Changes" button
-- Show branch name in header
-- Show commit count ahead/behind
-- Add loading states
-
-#### Dos and Don'ts
-
-**DO:**
-- ✅ Show status with simple colored dots
-- ✅ Make staging visual (checkboxes)
-- ✅ Use Monaco's built-in diff viewer
-- ✅ Show branch in UI
-
-**DON'T:**
-- ❌ Build a full Git GUI yet (just basics)
-- ❌ Try to visualize branches (too complex)
-- ❌ Support Git LFS or submodules
-- ❌ Add merge conflict resolution (v2 feature)
-
----
 
 ### DAY 10-11: LSP Integration (Basic) [16 hours]
 
@@ -735,7 +658,84 @@
 - Create demo video (2 minutes)
 - Prepare demo project
 - Write demo script
-- Test on different machines
+### DAY 8-9: Git Integration (Visual) [16 hours]
+
+**Current Problem:** Git data exists in backend but not visible in UI.
+
+#### Implementation Plan
+
+**Backend Enhancement (4 hours):**
+
+1. **Enrich Node Data with Git**
+   - Modify `watcher.js` to call `git.js`:
+     ```javascript
+     const gitStatus = await getGitStatus(projectRoot);
+     
+     nodes.forEach(node => {
+       const status = gitStatus[node.id];
+       node.data.gitStatus = status; // 'modified', 'untracked', etc.
+     });
+     ```
+
+2. **Git File Status**
+   - Use `simple-git` to get status:
+     ```javascript
+     const git = simpleGit(projectRoot);
+     const status = await git.status();
+     // Returns: modified, not_added, deleted, etc.
+     ```
+
+**Frontend Changes (8 hours):**
+
+3. **Status Dots on Nodes**
+   - Update `TerminalNode.jsx`:
+     ```javascript
+     {data.gitStatus && (
+       <div className="git-indicator">
+         {data.gitStatus === 'modified' && '🟠'}
+         {data.gitStatus === 'untracked' && '🟢'}
+         {data.gitStatus === 'staged' && '🔵'}
+       </div>
+     )}
+     ```
+   - Position in top-right corner
+
+4. **Git Panel (Sidebar)**
+   - Create `GitPanel.jsx`:
+     - List of changed files
+     - Checkboxes to stage
+     - Commit message input
+     - Commit button
+     - Push/Pull buttons
+   - Use same sidebar tab system as file tree
+
+5. **Visual Diff**
+   - When you click changed file in Git panel:
+     - Open in editor
+     - Show diff in gutter (Monaco supports this)
+     - Green for additions, red for deletions
+
+**Polish (4 hours):**
+- Add "Discard Changes" button
+- Show branch name in header
+- Show commit count ahead/behind
+- Add loading states
+
+#### Dos and Don'ts
+
+**DO:**
+- ✅ Show status with simple colored dots
+- ✅ Make staging visual (checkboxes)
+- ✅ Use Monaco's built-in diff viewer
+- ✅ Show branch in UI
+
+**DON'T:**
+- ❌ Build a full Git GUI yet (just basics)
+- ❌ Try to visualize branches (too complex)
+- ❌ Support Git LFS or submodules
+- ❌ Add merge conflict resolution (v2 feature)
+
+---- Test on different machines
 
 ---
 
