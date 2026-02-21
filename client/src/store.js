@@ -16,8 +16,10 @@ const useStore = create((set, get) => ({
     isSaving: false,
     activeRunDir: null, // Absolute path to directory for RunControls detection (null = project root)
     activeErrors: {}, // { [normalizedFilePath]: { message, line, stack, timestamp } }
+    selectedPath: 'Visor',
 
     setActiveRunDir: (dir) => set({ activeRunDir: dir }),
+    setSelectedPath: (path) => set({ selectedPath: path }),
 
     // ===== Centralized Error Handling =====
     handleExecutionError: (errorData) => {
@@ -269,6 +271,13 @@ const useStore = create((set, get) => ({
             newSet.add(folderId);
         }
         set({ expandedFolders: newSet });
+
+        // Update selected path for breadcrumbs
+        // Get the directory name from the path
+        const pathParts = folderId.replace(/\\/g, '/').split('/');
+        const dirName = pathParts[pathParts.length - 1];
+        set({ selectedPath: dirName || 'Visor' });
+
         fetchGraph(false, folderId); // Pass false for isBackground, and folderId as anchor
     },
 
@@ -329,6 +338,13 @@ const useStore = create((set, get) => ({
     openFile: async (path, label) => {
         // Prevent opening if already open? Or just switch.
         set({ editingFile: { path, label, content: '// Loading...', originalContent: '' } });
+
+        // Update selected path for breadcrumbs (parent directory of the file)
+        const pathParts = path.replace(/\\/g, '/').split('/');
+        pathParts.pop(); // Remove filename
+        const dirName = pathParts[pathParts.length - 1];
+        set({ selectedPath: dirName || 'Visor' });
+
         try {
             const res = await axios.get('/api/files/content', { params: { path } });
             set({ editingFile: { path, label, content: res.data.content, originalContent: res.data.content } });

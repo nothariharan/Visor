@@ -1,7 +1,9 @@
 import React from 'react';
 import { Network, Share2, Zap, ArrowRight, Circle } from 'lucide-react';
+import useStore from '../store';
 
 export default function Header({ currentMode, onModeChange }) {
+    const { selectedPath } = useStore();
     const modes = [
         { id: 'topography', label: 'Topography', icon: <Network size={14} />, desc: 'Raw file tree' },
         { id: 'skeleton', label: 'Skeleton', icon: <Share2 size={14} />, desc: 'Critical path' },
@@ -15,7 +17,7 @@ export default function Header({ currentMode, onModeChange }) {
                 <ArrowRight size={16} className="text-green" />
                 <span className="text-blue">~/visor</span>
                 <span className="text-subtext0">/</span>
-                <span className="text-text">my-project</span>
+                <span className="text-text">Visor{selectedPath && selectedPath !== 'Visor' ? ` / ${selectedPath}` : ''}</span>
             </div>
 
             {/* Center: Mode Switcher */}

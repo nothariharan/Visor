@@ -35,6 +35,15 @@ function App() {
     return () => socket.close();
   }, [handleExecutionError, clearErrors]);
 
+  // Sync Process Manager visibility with mode
+  useEffect(() => {
+    if (currentMode === 'forge') {
+      setShowProcessManager(true);
+    } else {
+      setShowProcessManager(false);
+    }
+  }, [currentMode]);
+
   return (
     <div className="h-screen w-screen bg-base font-mono flex flex-col overflow-hidden text-text">
       {/* Global Components */}
