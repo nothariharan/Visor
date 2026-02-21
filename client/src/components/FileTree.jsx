@@ -8,13 +8,13 @@ const FileTreeNode = ({ node, level = 0, onToggle, onSelect }) => {
     const isSelected = focusedNode === node.path;
 
     const getIcon = (name, isDir) => {
-        if (isDir) return isExpanded ? <Folder size={16} className="text-yellow-500" /> : <Folder size={16} className="text-yellow-500" />;
-        if (name.endsWith('.js') || name.endsWith('.jsx') || name.endsWith('.ts') || name.endsWith('.tsx')) return <FileCode size={16} className="text-blue-400" />;
-        if (name.endsWith('.json')) return <FileJson size={16} className="text-yellow-400" />;
-        if (name.endsWith('.css') || name.endsWith('.scss')) return <FileCode size={16} className="text-sky-400" />;
-        if (name.match(/\.(png|jpg|jpeg|gif|svg)$/)) return <Image size={16} className="text-purple-400" />;
-        if (name.match(/\.(sql|db|sqlite)$/)) return <Database size={16} className="text-green-400" />;
-        return <File size={16} className="text-slate-400" />;
+        if (isDir) return isExpanded ? <Folder size={18} className="text-yellow-500" /> : <Folder size={18} className="text-yellow-500" />;
+        if (name.endsWith('.js') || name.endsWith('.jsx') || name.endsWith('.ts') || name.endsWith('.tsx')) return <FileCode size={18} className="text-blue-400" />;
+        if (name.endsWith('.json')) return <FileJson size={18} className="text-yellow-400" />;
+        if (name.endsWith('.css') || name.endsWith('.scss')) return <FileCode size={18} className="text-sky-400" />;
+        if (name.match(/\.(png|jpg|jpeg|gif|svg|webp)$/i)) return <Image size={18} className="text-purple-400" />;
+        if (name.match(/\.(sql|db|sqlite)$/i)) return <Database size={18} className="text-green-400" />;
+        return <File size={18} className="text-slate-400" />;
     };
 
     const handleClick = (e) => {
@@ -34,15 +34,15 @@ const FileTreeNode = ({ node, level = 0, onToggle, onSelect }) => {
                     ${isSelected ? 'bg-blue/20 text-blue' : 'text-subtext1 hover:bg-surface0'}
                 `}
             >
-                <div className="w-4 h-4 mr-1 flex items-center justify-center shrink-0">
+                <div className="w-5 h-5 mr-1 flex items-center justify-center shrink-0">
                     {node.isDirectory && (
-                        isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />
+                        isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />
                     )}
                 </div>
                 <div className="mr-2 shrink-0">
                     {getIcon(node.name, node.isDirectory)}
                 </div>
-                <span className="text-xs truncate">{node.name}</span>
+                <span className="text-sm font-medium truncate">{node.name}</span>
             </div>
 
             {node.isDirectory && isExpanded && node.children && (

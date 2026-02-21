@@ -6,9 +6,9 @@ export default function Sidebar() {
     const [activeTab, setActiveTab] = useState('files');
 
     return (
-        <div className="w-80 bg-crust border-r-2 border-surface1 flex flex-col">
+        <div className="w-96 bg-crust border-r-2 border-surface1 flex flex-col">
             {/* Tab Bar */}
-            <div className="h-10 border-b-2 border-surface1 flex">
+            <div className="h-12 border-b-2 border-surface1 flex">
                 <button
                     onClick={() => setActiveTab('files')}
                     className={`
