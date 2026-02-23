@@ -21,6 +21,9 @@ const useStore = create((set, get) => ({
     searchQuery: '',
     lastSaveTime: null,
     isSavingLayout: false,
+    // Guard fields to avoid duplicate/rapid consecutive saves
+    lastLayoutHash: null,
+    lastSaveAttemptAt: null,
 
     // --- Layout Persistence ---
     loadLayout: async () => {
@@ -57,11 +60,35 @@ const useStore = create((set, get) => ({
     },
 
     saveLayout: async () => {
-        const { nodes, edges, viewport, expandedFolders, organizeMode } = get();
+        const { nodes, edges, viewport, expandedFolders, organizeMode, isSavingLayout, lastLayoutHash, lastSaveAttemptAt } = get();
         if (nodes.length === 0) return;
 
+        // Compute a small deterministic fingerprint for this layout to detect duplicates
+        const layoutFingerprint = JSON.stringify({
+            nodes: nodes.map(n => ({ id: n.id, position: n.position })),
+            viewport,
+            expandedFolders: Array.from(expandedFolders),
+            organizeMode
+        });
+
+        const now = Date.now();
+        const SKIP_MS = 3000; // if an identical layout was attempted within SKIP_MS, skip
+
+        // If a save is already in progress, skip initiating another
+        if (isSavingLayout) {
+            console.log('[Visor] Skipping save: already saving');
+            return;
+        }
+
+        // If fingerprint unchanged and last attempt was recent, skip duplicate save
+        if (lastLayoutHash === layoutFingerprint && lastSaveAttemptAt && (now - lastSaveAttemptAt) < SKIP_MS) {
+            console.log('[Visor] Skipping save: layout unchanged (debounced guard)');
+            return;
+        }
+
+        // Record attempt and mark saving
+        set({ isSavingLayout: true, lastLayoutHash: layoutFingerprint, lastSaveAttemptAt: now });
         console.log('[Visor] Triggering layout save...');
-        set({ isSavingLayout: true });
 
         const layoutData = {
             nodes: nodes.map(n => ({ id: n.id, position: n.position, width: n.width, height: n.height, parentNode: n.parentNode })),

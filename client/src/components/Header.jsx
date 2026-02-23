@@ -55,7 +55,7 @@ export default function Header({ currentMode, onModeChange }) {
                 {/* Layout Controls */}
                 <div className="flex items-center gap-2 border-r border-surface1 pr-4">
                     <button
-                        onClick={saveLayout}
+                        onClick={() => { if (!isSavingLayout) saveLayout(); }}
                         disabled={isSavingLayout}
                         className="flex items-center gap-1 text-subtext0 hover:text-text disabled:opacity-50"
                         title="Save Layout"

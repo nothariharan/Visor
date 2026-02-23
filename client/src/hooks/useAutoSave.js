@@ -3,10 +3,10 @@ import useStore from '../store';
 
 // This hook listens to changes in nodes and viewport and triggers a debounced save.
 const useAutoSave = () => {
-    const { nodes, viewport, saveLayout } = useStore(state => ({
+    const { nodes, viewport, loading } = useStore(state => ({
         nodes: state.nodes,
         viewport: state.viewport,
-        saveLayout: state.saveLayout,
+        loading: state.loading
     }));
 
     const saveTimeout = useRef(null);
@@ -19,14 +19,19 @@ const useAutoSave = () => {
     });
 
     useEffect(() => {
+        // If app is still loading initial layout, don't schedule autosave
+        if (loading) return;
+
         // Clear any existing timer
         if (saveTimeout.current) {
             clearTimeout(saveTimeout.current);
         }
 
-        // Set a new timer
+        // Set a new timer; call the store getter directly to avoid stale function refs
         saveTimeout.current = setTimeout(() => {
-            saveLayout();
+            // use the store getter to invoke a stable saveLayout implementation
+            const save = useStore.getState().saveLayout;
+            if (typeof save === 'function') save();
         }, 2000); // 2-second debounce
 
         // Cleanup function to clear timer if component unmounts
@@ -36,7 +41,7 @@ const useAutoSave = () => {
             }
         };
 
-    }, [watchedState, saveLayout]); // Re-run effect when the watched state changes
+    }, [watchedState, loading]); // Re-run effect when the watched state changes or loading completes
 };
 
 export default useAutoSave;
