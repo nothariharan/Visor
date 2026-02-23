@@ -33,3 +33,7 @@ yarn-error.log*
 *.njsproj
 *.sln
 *.sw?
+
+
+# Visor project data
+.visor/
