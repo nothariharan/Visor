@@ -5,7 +5,7 @@ import useStore from '../store';
 import { getFileTypeStyles } from '../utils/fileColors';
 
 const TerminalNode = ({ id, data, selected }) => {
-  const { activeErrors } = useStore();
+  const { activeErrors, searchQuery } = useStore(); // Get searchQuery from store
 
   // Normalization logic
   const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
@@ -21,6 +21,9 @@ const TerminalNode = ({ id, data, selected }) => {
   const isExecuting = data.status === 'executing';
   const isWarning = data.status === 'warning';
   const isExpanded = data.expanded;
+
+  // Search result logic
+  const isSearchResult = searchQuery && data.label.toLowerCase().includes(searchQuery.toLowerCase());
 
   // Determine styles based on state
   const borderColor = isError ? 'border-red' :
@@ -47,6 +50,7 @@ const TerminalNode = ({ id, data, selected }) => {
               rounded-lg border-2 border-dashed
               bg-crust/50 transition-all group
               relative
+              ${isSearchResult ? 'ring-2 ring-yellow ring-offset-2 ring-offset-surface0' : ''}
           `} style={{ borderColor: fileColor }}>
         {/* Minimal Label */}
         <div className="absolute -top-3 left-4 px-2 bg-crust text-xs font-mono text-subtext0 flex items-center gap-2">
@@ -70,6 +74,7 @@ const TerminalNode = ({ id, data, selected }) => {
         rounded-md overflow-hidden transition-all
         hover:shadow-hard-hover
         ${animationClass}
+        ${isSearchResult ? 'ring-2 ring-yellow ring-offset-2 ring-offset-surface0' : ''}
       `}
       style={{
         borderColor: isError ? undefined : (isExecuting ? undefined : (selected ? undefined : '#45475a')),
@@ -95,7 +100,6 @@ const TerminalNode = ({ id, data, selected }) => {
           {/* Icon based on status */}
           {isError && <XCircle className="text-red" size={20} />}
           {isExecuting && <Zap className="text-green" size={20} />}
-          {isWarning && <AlertTriangle className="text-yellow" size={20} />}
           {!isError && !isExecuting && !isWarning && (
             data.type === 'folder'
               ? <Folder size={20} style={{ color: fileColor }} />

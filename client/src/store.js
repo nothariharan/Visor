@@ -17,9 +17,11 @@ const useStore = create((set, get) => ({
     activeRunDir: null, // Absolute path to directory for RunControls detection (null = project root)
     activeErrors: {}, // { [normalizedFilePath]: { message, line, stack, timestamp } }
     selectedPath: 'Visor',
+    searchQuery: '', // New state for search query
 
     setActiveRunDir: (dir) => set({ activeRunDir: dir }),
     setSelectedPath: (path) => set({ selectedPath: path }),
+    setSearchQuery: (query) => set({ searchQuery: query }), // New action to set search query
 
     // ===== Centralized Error Handling =====
     handleExecutionError: (errorData) => {
@@ -597,8 +599,8 @@ const useStore = create((set, get) => ({
             // Include hierarchy edges in highlight logic
             if (edge.source === nodeId || edge.target === nodeId) {
                 connectedEdgeIds.add(edge.id);
-                connectedNodeIds.add(edge.source);
                 connectedNodeIds.add(edge.target);
+                connectedNodeIds.add(edge.source);
             }
         });
 
