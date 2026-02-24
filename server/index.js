@@ -91,6 +91,21 @@ app.post('/api/visor/save-layout', async (req, res) => {
     }
 });
 
+// POST /api/visor/reset-layout
+app.post('/api/visor/reset-layout', async (req, res) => {
+    const layoutPath = path.join(VISOR_DIR, 'layout.json');
+    try {
+        if (await fs.exists(layoutPath)) {
+            await fs.remove(layoutPath);
+            console.log('Layout file removed');
+        }
+        res.json({ success: true, message: 'Layout reset successfully' });
+    } catch (error) {
+        console.error('Error resetting layout:', error);
+        res.status(500).json({ error: 'Failed to reset layout.' });
+    }
+});
+
 // Basic health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

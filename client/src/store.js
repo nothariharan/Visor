@@ -201,6 +201,30 @@ const useStore = create((set, get) => ({
 
     setEditingFile: (file) => set({ editingFile: file }),
     closeFile: () => set({ editingFile: null }),
+
+    resetLayout: async () => {
+        try {
+            // Call backend to delete saved layout
+            await axios.post('/api/visor/reset-layout');
+
+            // Reset local state
+            set({
+                nodes: [],
+                edges: [],
+                viewport: null,
+                expandedFolders: new Set(),
+                organizeMode: 'all',
+                loading: true
+            });
+
+            // Fetch fresh graph with no saved positions
+            await get().fetchGraph();
+
+            console.log('✅ Layout reset to default');
+        } catch (error) {
+            console.error('❌ Failed to reset layout:', error);
+        }
+    },
     updateFileContent: (newContent) => {
         const current = get().editingFile;
         if (current) {

@@ -3,7 +3,7 @@ import { Network, Share2, Zap, ArrowRight, Save, RotateCcw } from 'lucide-react'
 import useStore from '../store';
 
 export default function Header({ currentMode, onModeChange }) {
-    const { selectedPath, saveLayout, lastSaveTime, isSavingLayout, fetchGraph } = useStore();
+    const { selectedPath, saveLayout, lastSaveTime, isSavingLayout, resetLayout } = useStore();
 
     const modes = [
         { id: 'topography', label: 'Topography', icon: <Network size={14} />, desc: 'Raw file tree' },
@@ -11,10 +11,9 @@ export default function Header({ currentMode, onModeChange }) {
         { id: 'forge', label: 'Forge', icon: <Zap size={14} />, desc: 'Live execution' },
     ];
 
-    const handleResetLayout = () => {
-        if (confirm('Are you sure you want to reset the layout? This will clear all saved positions.')) {
-            // Fetch graph without loading from layout to reset
-            fetchGraph();
+    const handleResetLayout = async () => {
+        if (confirm('Are you sure you want to reset the layout? This will clear all saved positions and restore the default layout.')) {
+            await resetLayout();
         }
     };
 
