@@ -13,6 +13,7 @@ const { ProcessRunner } = require('./runner/ProcessRunner');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const ROOT_DIR = process.cwd(); // Run on current directory
+const VISOR_DIR = path.join(ROOT_DIR, '.visor'); // Define .visor directory path
 
 let config = {};
 try {
@@ -27,13 +28,83 @@ try {
 
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increased limit for potentially large layouts
 
 // Serve static frontend files (for production/CLI usage)
 const clientBuildPath = path.join(__dirname, '../client/dist');
 if (fs.existsSync(clientBuildPath)) {
     app.use(express.static(clientBuildPath));
 }
+
+// --- New Visor Layout Endpoints ---
+
+// GET /api/visor/load-layout
+app.get('/api/visor/load-layout', async (req, res) => {
+    const layoutPath = path.join(VISOR_DIR, 'layout.json');
+    try {
+        if (await fs.exists(layoutPath)) {
+            const content = await fs.readFile(layoutPath, 'utf-8');
+            // Basic corruption check
+            if (content.trim() === '') {
+                 return res.json({ exists: false, reason: 'empty' });
+            }
+            const data = JSON.parse(content);
+            res.json({ exists: true, ...data });
+        } else {
+            res.json({ exists: false });
+        }
+    } catch (error) {
+        console.error('Error loading layout.json:', error);
+        // If file is corrupted, return a default state
+        res.status(500).json({
+            exists: false,
+            error: 'File may be corrupted.',
+            // Return a default structure the frontend can handle
+            data: { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } }
+        });
+    }
+});
+
+// POST /api/visor/save-layout
+app.post('/api/visor/save-layout', async (req, res) => {
+    const layoutPath = path.join(VISOR_DIR, 'layout.json');
+    try {
+        const layoutData = req.body;
+        if (!layoutData || !layoutData.nodes) {
+            return res.status(400).json({ error: 'Invalid layout data provided.' });
+        }
+
+        // Add versioning and timestamp as per the plan
+        const saveData = {
+            version: "1.0.0", // Using a simple version for now
+            savedAt: new Date().toISOString(),
+            data: layoutData
+        };
+
+        await fs.ensureDir(VISOR_DIR); // Ensure directory exists before writing
+        await fs.writeJson(layoutPath, saveData, { spaces: 2 });
+
+        res.json({ success: true, savedAt: saveData.savedAt });
+    } catch (error) {
+        console.error('Error saving layout.json:', error);
+        res.status(500).json({ error: 'Failed to save layout file.' });
+    }
+});
+
+// POST /api/visor/reset-layout
+app.post('/api/visor/reset-layout', async (req, res) => {
+    const layoutPath = path.join(VISOR_DIR, 'layout.json');
+    try {
+        if (await fs.exists(layoutPath)) {
+            await fs.remove(layoutPath);
+            console.log('Layout file removed');
+        }
+        res.json({ success: true, message: 'Layout reset successfully' });
+    } catch (error) {
+        console.error('Error resetting layout:', error);
+        res.status(500).json({ error: 'Failed to reset layout.' });
+    }
+});
 
 // Basic health check
 app.get('/api/health', (req, res) => {
@@ -58,11 +129,6 @@ app.get('/api/files/content', async (req, res) => {
         const { path: filePath } = req.query;
         if (!filePath) return res.status(400).json({ error: 'Missing file path' });
 
-        // Resolve relative paths if needed, but usually we get full paths.
-        // If absolute, ensure it's inside ROOT_DIR for basic safety?
-        // For local dev tool, trust is implied, but let's check.
-        // Actually, node graph uses absolute paths. Let's trust it for now as it's a dev tool.
-
         const content = await fs.readFile(filePath, 'utf-8');
         res.json({ content });
     } catch (error) {
@@ -79,7 +145,6 @@ app.post('/api/files/content', async (req, res) => {
         await fs.writeFile(filePath, content, 'utf-8');
         console.log(`File saved: ${filePath}`);
 
-        // No need to manually trigger refresh, chokidar will catch it
         res.json({ success: true });
     } catch (error) {
         console.error('Error writing file:', error);
@@ -93,7 +158,6 @@ app.get('/api/git', async (req, res) => {
     const filePath = req.query.path;
     if (!filePath) return res.status(400).json({ error: 'Path required' });
 
-    // Ensure path is absolute and safe
     const absolutePath = path.resolve(ROOT_DIR, filePath);
     if (!absolutePath.startsWith(ROOT_DIR)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -112,7 +176,6 @@ app.post('/api/search', async (req, res) => {
         const matches = [];
         const ignoreDirs = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage']);
 
-        // Recursive search helper
         async function searchDir(dir) {
             try {
                 const dirents = await fs.readdir(dir, { withFileTypes: true });
@@ -157,38 +220,23 @@ const processRunner = new ProcessRunner(ROOT_DIR);
 processRunner.on('output', (data) => io.emit('process:output', data));
 processRunner.on('exit', (data) => io.emit('process:exit', data));
 processRunner.on('error', (data) => io.emit('process:error', data));
-// Forward execution events to WebSocket
-processRunner.on('execution:error', (data) => {
-    io.emit('execution:error', data);
-});
-
-processRunner.on('execution:warning', (data) => {
-    io.emit('execution:warning', data);
-});
-
-processRunner.on('execution:trace', (data) => {
-    io.emit('execution:trace', data);
-});
+processRunner.on('execution:error', (data) => io.emit('execution:error', data));
+processRunner.on('execution:warning', (data) => io.emit('execution:warning', data));
+processRunner.on('execution:trace', (data) => io.emit('execution:trace', data));
 
 // --- Browser Error Handling ---
-
-// Serve the error reporter script (with optional workingDir parameter)
 app.get('/error-reporter.js', (req, res) => {
     try {
         const scriptPath = path.join(__dirname, 'injector/error-reporter.js');
         if (fs.existsSync(scriptPath)) {
             let script = fs.readFileSync(scriptPath, 'utf-8');
-
-            // Inject the workingDir if provided
             const workingDir = req.query.cwd || '';
             if (workingDir) {
-                // Replace the default empty string with the actual working directory
                 script = script.replace(
                     'const WORKING_DIR = "";',
                     `const WORKING_DIR = "${workingDir.replace(/\\/g, '\\\\')}";`
                 );
             }
-
             res.type('application/javascript').send(script);
         } else {
             res.status(404).send('// Error reporter script not found');
@@ -198,48 +246,25 @@ app.get('/error-reporter.js', (req, res) => {
     }
 });
 
-// API: Receive browser errors
 app.post('/api/browser-error', (req, res) => {
     const { message, filename, line, column, stack, type } = req.body;
     processRunner.handleBrowserError({ message, filename, line, column, stack, type });
     res.json({ received: true });
 });
 
-// API: Detect project (Legacy support + New Endpoint)
+// API: Detect project
 app.get('/api/project/detect', async (req, res) => {
     try {
         const targetDir = req.query.path || ROOT_DIR;
-        // Use MultiRuntimeDetector for better detection
         const detector = new MultiRuntimeDetector(targetDir);
         const runtimes = await detector.detectAll();
-
-        // Backward Compatibility for old frontend (which expects 'commands' array)
         let legacyResponse = { runtimes };
-
         if (runtimes.length > 0) {
             const primary = runtimes[0];
-            legacyResponse = {
-                ...legacyResponse,
-                type: primary.category || 'custom',
-                framework: primary.name,
-                defaultPort: primary.port,
-                commands: runtimes.map(r => ({
-                    name: r.name,
-                    command: r.command,
-                    icon: r.icon,
-                    primary: r === primary
-                }))
-            };
+            legacyResponse = { ...legacyResponse, type: primary.category || 'custom', framework: primary.name, defaultPort: primary.port, commands: runtimes.map(r => ({ name: r.name, command: r.command, icon: r.icon, primary: r === primary })) };
         } else {
-            legacyResponse = {
-                ...legacyResponse,
-                type: 'unknown',
-                framework: 'unknown',
-                commands: [],
-                message: 'Could not auto-detect project type'
-            };
+            legacyResponse = { ...legacyResponse, type: 'unknown', framework: 'unknown', commands: [], message: 'Could not auto-detect project type' };
         }
-
         res.json(legacyResponse);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -249,7 +274,6 @@ app.get('/api/project/detect', async (req, res) => {
 app.get('/api/runtimes/detect', async (req, res) => {
     try {
         const targetDir = req.query.path || ROOT_DIR;
-        // Decode path if it comes from query
         const detector = new MultiRuntimeDetector(targetDir);
         const runtimes = await detector.detectAll();
         res.json({ runtimes });
@@ -307,8 +331,206 @@ app.post('/api/execution/clear-errors', (req, res) => {
     res.json({ success: true });
 });
 
-// SPA Catch-all (for client-side routing)
-// Express 5 requires regex or named parameters for catch-all
+// --- File Search & Indexing ---
+let fileIndex = [];
+let lastIndexTime = 0;
+const INDEX_CACHE_DURATION = 5000; // 5 seconds
+
+// Simple fuzzy matching algorithm
+function fuzzyMatch(query, filename) {
+    query = query.toLowerCase();
+    filename = filename.toLowerCase();
+
+    let queryIdx = 0;
+    let matchScore = 0;
+
+    for (let i = 0; i < filename.length && queryIdx < query.length; i++) {
+        if (filename[i] === query[queryIdx]) {
+            queryIdx++;
+            matchScore += 1;
+            // Bonus for consecutive matches
+            if (i > 0 && filename[i - 1] === query[queryIdx - 2]) {
+                matchScore += 0.5;
+            }
+        }
+    }
+
+    // Return false if not all characters were found in order
+    if (queryIdx !== query.length) return false;
+
+    // Penalize matches further into the string
+    return matchScore - filename.length * 0.1;
+}
+
+// Get matched character positions for highlighting
+function getMatchPositions(query, filename) {
+    query = query.toLowerCase();
+    filename = filename.toLowerCase();
+
+    const positions = [];
+    let queryIdx = 0;
+
+    for (let i = 0; i < filename.length && queryIdx < query.length; i++) {
+        if (filename[i] === query[queryIdx]) {
+            positions.push(i);
+            queryIdx++;
+        }
+    }
+
+    return queryIdx === query.length ? positions : [];
+}
+
+// Build file index by scanning the directory
+async function buildFileIndex() {
+    const now = Date.now();
+
+    // Use cache if fresh
+    if (fileIndex.length > 0 && now - lastIndexTime < INDEX_CACHE_DURATION) {
+        return fileIndex;
+    }
+
+    const index = [];
+    const ignoreDirs = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.visor', '.vscode', '__pycache__']);
+
+    async function scanDir(dir, relativePrefix = '') {
+        try {
+            const dirents = await fs.readdir(dir, { withFileTypes: true });
+
+            for (const dirent of dirents) {
+                if (dirent.name.startsWith('.') && !relativePrefix) continue; // Skip hidden at root
+                if (ignoreDirs.has(dirent.name)) continue;
+
+                const fullPath = path.join(dir, dirent.name);
+                const relativePath = path.join(relativePrefix, dirent.name);
+
+                if (dirent.isDirectory()) {
+                    await scanDir(fullPath, relativePath);
+                } else {
+                    index.push({
+                        name: dirent.name,
+                        path: fullPath,
+                        relativePath: relativePath,
+                        ext: path.extname(dirent.name)
+                    });
+
+                    if (index.length >= 500) {
+                        break; // Limit to 500 files
+                    }
+                }
+            }
+        } catch (e) {
+            // Permission denied or other errors
+        }
+    }
+
+    await scanDir(ROOT_DIR);
+    fileIndex = index;
+    lastIndexTime = now;
+
+    return index;
+}
+
+// GET /api/search/files?q=query
+app.get('/api/search/files', async (req, res) => {
+    try {
+        const { q = '' } = req.query;
+
+        if (!q || q.length < 1) {
+            return res.json({ results: [] });
+        }
+
+        const index = await buildFileIndex();
+        const results = [];
+
+        for (const file of index) {
+            const score = fuzzyMatch(q, file.name);
+
+            if (score !== false) {
+                const positions = getMatchPositions(q, file.name);
+                results.push({
+                    ...file,
+                    score,
+                    matchPositions: positions
+                });
+            }
+        }
+
+        // Sort by score (descending) and limit to 50
+        results.sort((a, b) => b.score - a.score);
+
+        res.json({
+            results: results.slice(0, 50),
+            total: results.length
+        });
+    } catch (error) {
+        console.error('Search error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/search/recent
+app.get('/api/search/recent', async (req, res) => {
+    try {
+        const prefsPath = path.join(VISOR_DIR, 'preferences.json');
+        let prefs = {};
+
+        if (await fs.exists(prefsPath)) {
+            prefs = await fs.readJson(prefsPath);
+        }
+
+        const recentFiles = prefs.recentFiles || [];
+        // Sort by lastOpened (newest first)
+        recentFiles.sort((a, b) => b.lastOpened - a.lastOpened);
+
+        res.json({ recent: recentFiles.slice(0, 20) });
+    } catch (error) {
+        console.error('Recent files error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/search/recent (track file opened)
+app.post('/api/search/recent', async (req, res) => {
+    try {
+        const { path: filePath } = req.body;
+
+        if (!filePath) {
+            return res.status(400).json({ error: 'Missing path' });
+        }
+
+        const prefsPath = path.join(VISOR_DIR, 'preferences.json');
+        let prefs = {};
+
+        if (await fs.exists(prefsPath)) {
+            prefs = await fs.readJson(prefsPath);
+        }
+
+        let recentFiles = prefs.recentFiles || [];
+
+        // Remove if already exists
+        recentFiles = recentFiles.filter(f => f.path !== filePath);
+
+        // Add to front
+        recentFiles.unshift({
+            path: filePath,
+            lastOpened: Date.now()
+        });
+
+        // Keep only 20 most recent
+        recentFiles = recentFiles.slice(0, 20);
+
+        prefs.recentFiles = recentFiles;
+        await fs.ensureDir(VISOR_DIR);
+        await fs.writeJson(prefsPath, prefs, { spaces: 2 });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Recent files tracking error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// SPA Catch-all
 app.get(/.*/, (req, res) => {
     if (!req.path.startsWith('/api') && fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
         res.sendFile(path.join(__dirname, '../client/dist/index.html'));
@@ -317,12 +539,53 @@ app.get(/.*/, (req, res) => {
     }
 });
 
+// --- Startup Logic ---
+const initializeVisorDir = async () => {
+    try {
+        // 1. Create .visor directory if it doesn't exist
+        await fs.ensureDir(VISOR_DIR);
+
+        // 2. Create default files if they don't exist
+        const filesToCreate = {
+            'layout.json': {},
+            'groups.json': {},
+            'preferences.json': {}
+        };
+
+        for (const [fileName, content] of Object.entries(filesToCreate)) {
+            const filePath = path.join(VISOR_DIR, fileName);
+            if (!(await fs.exists(filePath))) {
+                await fs.writeJson(filePath, content, { spaces: 2 });
+                console.log(`Created default ${fileName}`);
+            }
+        }
+
+        // 3. Add .visor to .gitignore
+        const gitignorePath = path.join(ROOT_DIR, '.gitignore');
+        if (await fs.exists(gitignorePath)) {
+            let gitignoreContent = await fs.readFile(gitignorePath, 'utf-8');
+            if (!gitignoreContent.includes('.visor')) {
+                gitignoreContent += '\n\n# Visor project data\n.visor/\n';
+                await fs.writeFile(gitignorePath, gitignoreContent);
+                console.log('Added .visor to .gitignore');
+            }
+        } else {
+            // If no .gitignore, create one with the .visor entry
+            await fs.writeFile(gitignorePath, '# Visor project data\n.visor/\n');
+            console.log('Created .gitignore and added .visor entry');
+        }
+
+    } catch (error) {
+        console.error('Failed to initialize .visor directory:', error);
+    }
+};
+
 // Start server
 server.listen(PORT, async () => {
+    await initializeVisorDir();
 
     console.log(`Server running on http://localhost:${PORT}`);
     console.log(`Analyzing project at ${ROOT_DIR}...`);
-    // Initial analysis on startup
     try {
         await generateGraph(ROOT_DIR);
         console.log('Initial graph analysis complete.');

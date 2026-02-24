@@ -4,19 +4,46 @@ import GraphCanvas from './components/GraphCanvas';
 import Sidebar from './components/Sidebar';
 import ProcessManager from './components/ProcessManager';
 import SearchBar from './components/SearchBar';
+import SearchModal from './components/SearchModal';
 import CodeEditor from './components/CodeEditor';
 import ErrorToast from './components/ErrorToast';
 import io from 'socket.io-client';
 import useStore from './store';
 import LegendPanel from './components/LegendPanel';
-import { Eye, Zap } from 'lucide-react';
+import { Eye, Zap, Save } from 'lucide-react';
+import { useSearchShortcut } from './hooks/useSearchShortcut';
+
+function getRelativeTime(timestamp) {
+  if (!timestamp) return 'never';
+  const now = new Date();
+  const then = new Date(timestamp);
+  const diffMs = now - then;
+  const diffSecs = Math.floor(diffMs / 1000);
+
+  if (diffSecs < 1) return 'just now';
+  if (diffSecs < 60) return `${diffSecs}s ago`;
+  const diffMins = Math.floor(diffSecs / 60);
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return 'long ago';
+}
 
 function App() {
   const [currentMode, setCurrentMode] = useState('skeleton');
   const [showSidebar, setShowSidebar] = useState(true);
   const [showProcessManager, setShowProcessManager] = useState(true);
   const [showLegend, setShowLegend] = useState(false);
-  const { handleExecutionError, clearErrors } = useStore();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const { handleExecutionError, clearErrors, isSearchModalOpen, setIsSearchModalOpen, lastSaveTime, isSavingLayout } = useStore();
+
+  // Refresh the "saved X ago" text every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRefreshKey(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Global Socket for App-wide Events (Error Visualization)
@@ -44,11 +71,17 @@ function App() {
     }
   }, [currentMode]);
 
+  // Setup Cmd+P keyboard shortcut
+  useSearchShortcut(() => {
+    setIsSearchModalOpen(true);
+  });
+
   return (
     <div className="h-screen w-screen bg-base font-mono flex flex-col overflow-hidden text-text">
       {/* Global Components */}
       <CodeEditor />
       <ErrorToast />
+      <SearchModal isOpen={isSearchModalOpen} onClose={() => setIsSearchModalOpen(false)} />
 
       {/* Header */}
       <Header
@@ -103,6 +136,15 @@ function App() {
           <button onClick={() => setShowProcessManager(!showProcessManager)} className="hover:text-text">
             [{showProcessManager ? 'x' : ' '}] Process Mgr
           </button>
+
+          {/* Auto-save Status */}
+          <div className="flex items-center gap-1" key={refreshKey}>
+            <Save size={10} className={isSavingLayout ? 'text-yellow animate-pulse' : 'text-green'} />
+            <span className="text-xs">
+              {isSavingLayout ? 'Saving...' : `Saved ${getRelativeTime(lastSaveTime)}`}
+            </span>
+          </div>
+
           <div className="flex items-center gap-1">
             <Zap size={10} className="text-yellow" />
             <span>0ms</span>
