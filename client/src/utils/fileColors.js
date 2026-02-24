@@ -1,8 +1,8 @@
 export const getFileTypeStyles = (filename, isDirectory) => {
+    if (!filename && !isDirectory) return { color: '#a6adc8', label: 'FILE' };
     if (isDirectory) return { color: '#89b4fa', label: 'DIR' }; // Blue
 
-    // Handle extensionless files or specific names
-    const lowerName = filename.toLowerCase();
+    const lowerName = (filename || "").toLowerCase();
     if (lowerName === 'dockerfile') return { color: '#fab387', label: 'CFG' }; // Peach
     if (lowerName === 'makefile') return { color: '#fab387', label: 'CFG' }; // Peach
 

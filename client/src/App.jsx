@@ -10,6 +10,7 @@ import ErrorToast from './components/ErrorToast';
 import io from 'socket.io-client';
 import useStore from './store';
 import LegendPanel from './components/LegendPanel';
+import { ReactFlowProvider } from 'reactflow';
 import { Eye, Zap, Save } from 'lucide-react';
 import { useSearchShortcut } from './hooks/useSearchShortcut';
 
@@ -102,7 +103,9 @@ function App() {
 
         {/* Graph Canvas (Center) */}
         <div className="flex-1 relative bg-mantle">
-          <GraphCanvas mode={currentMode} />
+          <ReactFlowProvider>
+            <GraphCanvas mode={currentMode} />
+          </ReactFlowProvider>
           {/* Floating Legend Panel */}
           <LegendPanel isOpen={showLegend} onClose={() => setShowLegend(false)} />
         </div>

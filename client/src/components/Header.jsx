@@ -18,29 +18,33 @@ export default function Header({ currentMode, onModeChange }) {
     };
 
     return (
-        <header className="h-14 bg-crust border-b-2 border-surface1 flex items-center justify-between px-6">
-            {/* Left: Project Path */}
-            <div className="flex items-center gap-3 text-sm">
-                <ArrowRight size={16} className="text-green" />
-                <span className="text-blue">~/visor</span>
-                <span className="text-subtext0">/</span>
-                <span className="text-text">Visor{selectedPath && selectedPath !== 'Visor' ? ` / ${selectedPath}` : ''}</span>
+        <header className="h-14 bg-crust border-b-2 border-surface1 relative flex items-center px-6">
+            {/* Left Section: Project & Path */}
+            <div className="flex-1 flex items-center gap-3 text-sm min-w-0">
+                <ArrowRight size={16} className="text-green shrink-0" />
+                <div className="flex items-center gap-1 overflow-hidden">
+                    <span className="text-blue font-bold shrink-0">~/visor</span>
+                    <span className="text-subtext0 shrink-0">/</span>
+                    <span className="text-text truncate" title={selectedPath}>
+                        Visor{selectedPath && selectedPath !== 'Visor' ? ` / ${selectedPath}` : ''}
+                    </span>
+                </div>
             </div>
 
-            {/* Center: Mode Switcher */}
-            <div className="flex gap-2">
+            {/* Center Section: Mode Switcher (Pinned to Center) */}
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex gap-2">
                 {modes.map(mode => (
                     <button
                         key={mode.id}
                         onClick={() => onModeChange(mode.id)}
                         className={`
-              px-4 py-1.5 text-xs font-bold uppercase tracking-wider
-              border transition-all flex items-center gap-2
-              ${currentMode === mode.id
+                            px-4 py-1.5 text-xs font-bold uppercase tracking-wider
+                            border transition-all flex items-center gap-2
+                            ${currentMode === mode.id
                                 ? 'bg-peach text-crust border-peach shadow-hard-peach'
                                 : 'bg-surface0 text-subtext0 border-surface1 hover:border-text'
                             }
-            `}
+                        `}
                         title={mode.desc}
                     >
                         {mode.icon}
@@ -49,8 +53,8 @@ export default function Header({ currentMode, onModeChange }) {
                 ))}
             </div>
 
-            {/* Right: Layout Controls & System Status */}
-            <div className="flex items-center gap-4 text-xs">
+            {/* Right Section: Controls & Status */}
+            <div className="flex-1 flex items-center justify-end gap-4 text-xs">
                 {/* Layout Controls */}
                 <div className="flex items-center gap-2 border-r border-surface1 pr-4">
                     <button
@@ -71,15 +75,15 @@ export default function Header({ currentMode, onModeChange }) {
                     </button>
                     {lastSaveTime && (
                         <span className="text-[10px] text-subtext0 opacity-70">
-                            Saved {new Date(lastSaveTime).toLocaleTimeString()}
+                            {new Date(lastSaveTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                     )}
                 </div>
 
                 {/* System Status */}
                 <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green animate-pulse-slow" />
-                    <span className="text-subtext0">System Nominal</span>
+                    <div className="w-2 h-2 rounded-full bg-green" />
+                    <span className="text-subtext0 uppercase tracking-tighter font-bold opacity-60">Nominal</span>
                 </div>
             </div>
         </header>

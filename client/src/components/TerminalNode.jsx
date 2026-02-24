@@ -10,7 +10,9 @@ const TerminalNode = ({ id, data, selected }) => {
   const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
   const normalizedId = normalize(id);
 
-  const { color: fileColor, label: fileTypeLabel } = getFileTypeStyles(data.label, data.type === 'folder');
+  if (!data) return null; // Safety first
+
+  const { color: fileColor, label: fileTypeLabel } = getFileTypeStyles(data?.label, data?.type === 'folder');
 
   const errorData = activeErrors[normalizedId];
 
@@ -18,15 +20,15 @@ const TerminalNode = ({ id, data, selected }) => {
   const isExecuting = data.status === 'executing';
   const isWarning = data.status === 'warning';
   const isExpanded = data.expanded;
-  const isSearchResult = searchQuery && data.label.toLowerCase().includes(searchQuery.toLowerCase());
+  const isSearchResult = searchQuery && data?.label?.toLowerCase().includes(searchQuery.toLowerCase());
 
   // --- Style Calculation ---
   // Use color values directly instead of Tailwind classes to avoid conflicts
   const statusBorderColor = isError ? '#ef4444' : // red
     isWarning ? '#f9e2af' : // yellow
-    isExecuting ? '#a6e3a1' : // green
-    selected ? '#89b4fa' : // blue
-    '#585b70'; // default surface1
+      isExecuting ? '#a6e3a1' : // green
+        selected ? '#89b4fa' : // blue
+          '#585b70'; // default surface1
 
   const shadowColor = isError ? 'shadow-hard-red' :
     isExecuting ? 'shadow-hard-green' :
@@ -50,7 +52,7 @@ const TerminalNode = ({ id, data, selected }) => {
           `} style={{ borderColor: fileColor }}>
         <div className="absolute -top-3 left-4 px-2 bg-crust text-xs font-mono text-subtext0 flex items-center gap-2">
           <Box size={12} style={{ color: fileColor }} />
-          <span className="font-bold" style={{ color: fileColor }}>{data.label}</span>
+          <span className="font-bold" style={{ color: fileColor }}>{data?.label || 'Unknown'}</span>
         </div>
         <Handle type="target" position={Position.Left} className="opacity-0" />
         <Handle type="source" position={Position.Right} className="opacity-0" />
@@ -98,7 +100,7 @@ const TerminalNode = ({ id, data, selected }) => {
               ? <Folder size={20} style={{ color: fileColor }} />
               : <File size={20} style={{ color: fileColor }} />
           )}
-          <span className="font-bold text-sm truncate" title={data.label}>{data.label}</span>
+          <span className="font-bold text-sm truncate" title={data?.label || ''}>{data?.label || ''}</span>
         </div>
 
         {/* Metadata & Tags */}

@@ -42,11 +42,11 @@ const useStore = create((set, get) => ({
                         viewport: viewport || null,
                         expandedFolders: new Set(expandedFolders || []),
                         organizeMode: organizeMode || 'all',
-                        loading: false,
                         lastSaveTime: res.data.savedAt || null
                     });
                     console.log('✅ Layout loaded from .visor/layout.json');
-                    get().fetchGraph(true);
+                    // fetchGraph(true) will still perform the 0.7s delay internally
+                    await get().fetchGraph(true);
                     return;
                 }
             }
@@ -55,7 +55,7 @@ const useStore = create((set, get) => ({
 
         } catch (error) {
             console.error('❌ Failed to load layout:', error);
-            set({ error: 'Could not load saved layout.', loading: false });
+            set({ error: 'Could not load saved layout.' });
             await get().fetchGraph();
         }
     },
@@ -167,7 +167,129 @@ const useStore = create((set, get) => ({
     },
 
     organizeGraph: (mode) => {
-        // ... (rest of the function is unchanged)
+        const { nodes, edges, adjacency } = get();
+
+        if (mode === 'all') {
+            set({
+                organizeMode: 'all',
+                organizeStats: null,
+                nodes: nodes.map(n => ({
+                    ...n,
+                    hidden: false,
+                    data: { ...n.data, isEntryPoint: false, isCentral: false, criticalReason: null }
+                })),
+                edges: edges.map(e => ({ ...e, hidden: false }))
+            });
+            return;
+        }
+
+        const critical = new Set();
+        const SOURCE_EXTENSIONS = /\.(js|jsx|ts|tsx|mjs|cjs|vue|svelte)$/i;
+        const NON_CRITICAL_PATTERNS = [
+            /\.(txt|md|log|csv|yml|yaml|toml|xml|lock)$/i,
+            /\.(json)$/i,
+            /\.(png|jpg|jpeg|gif|svg|webp|ico|bmp|mp4|mp3)$/i,
+            /\.(css|scss|sass|less|styl)$/i,
+            /\.(env|env\..*)$/i,
+            /\.config\.(js|ts|mjs|cjs)$/i,
+            /visor\.config/i,
+            /package(-lock)?\.json$/i,
+            /tsconfig.*\.json$/i,
+            /\.eslintrc/i, /\.prettierrc/i, /\.babelrc/i,
+            /webpack\.config/i, /rollup\.config/i,
+        ];
+
+        const entryPatterns = [
+            /index\.(js|jsx|ts|tsx|mjs|cjs)$/i,
+            /main\.(js|jsx|ts|tsx)$/i,
+            /[/\\]App\.(js|jsx|ts|tsx)$/i,
+            /[/\\]app\.(js|jsx|ts|tsx)$/i,
+            /_app\.(js|jsx|ts|tsx)$/i,
+            /_document\.(js|jsx|ts|tsx)$/i,
+            /server\.(js|ts)$/i,
+        ];
+
+        const supplementaryPatterns = [
+            /\.test\.(js|jsx|ts|tsx)$/i,
+            /\.spec\.(js|jsx|ts|tsx)$/i,
+            /\.stories\.(js|jsx|ts|tsx)$/i,
+            /\.mock\.(js|jsx|ts|tsx)$/i,
+            /__tests__[/\\]/i,
+            /__mocks__[/\\]/i,
+            /\.d\.ts$/i,
+            /debug\.(js|ts)$/i,
+        ];
+
+        const isSourceCode = (id) => SOURCE_EXTENSIONS.test(id) && !NON_CRITICAL_PATTERNS.some(p => p.test(id));
+
+        const entryPoints = [];
+        const fileNodes = nodes.filter(n => n.type === 'custom');
+        const sourceNodes = fileNodes.filter(n => isSourceCode(n.id));
+
+        sourceNodes.forEach(node => {
+            if (supplementaryPatterns.some(p => p.test(node.id))) return;
+            const isNamed = entryPatterns.some(p => p.test(node.id));
+            const adj = adjacency[node.id];
+            const hasNoImporters = !adj || adj.importedBy.length === 0;
+            const hasImports = adj && adj.imports.length > 0;
+            if (isNamed || (hasNoImporters && hasImports)) {
+                entryPoints.push(node.id);
+            }
+        });
+
+        const visited = new Set();
+        const queue = [...entryPoints];
+        while (queue.length > 0) {
+            const nodeId = queue.shift();
+            if (visited.has(nodeId)) continue;
+            visited.add(nodeId);
+            critical.add(nodeId);
+            const adj = adjacency[nodeId];
+            if (adj) {
+                adj.imports.forEach(dep => {
+                    if (!visited.has(dep) && !supplementaryPatterns.some(p => p.test(dep))) {
+                        queue.push(dep);
+                    }
+                });
+            }
+        }
+
+        nodes.forEach(n => {
+            if (n.type === 'folder') critical.add(n.id);
+        });
+
+        const isEntrySet = new Set(entryPoints);
+        const getCriticalReason = (id) => {
+            if (isEntrySet.has(id)) return 'Entry Point';
+            if (nodes.find(n => n.id === id)?.type === 'folder') return null;
+            return 'Execution Path';
+        };
+
+        const criticalSourceCount = [...critical].filter(id => sourceNodes.some(n => n.id === id)).length;
+
+        set({
+            organizeMode: 'critical',
+            organizeStats: {
+                total: sourceNodes.length,
+                critical: criticalSourceCount,
+                hidden: sourceNodes.length - criticalSourceCount,
+                entryPoints: entryPoints.length,
+                centralNodes: 0
+            },
+            nodes: nodes.map(n => ({
+                ...n,
+                hidden: n.type === 'folder' ? false : !critical.has(n.id),
+                data: {
+                    ...n.data,
+                    isEntryPoint: isEntrySet.has(n.id),
+                    criticalReason: critical.has(n.id) ? getCriticalReason(n.id) : null
+                }
+            })),
+            edges: edges.map(e => ({
+                ...e,
+                hidden: !(critical.has(e.source) && critical.has(e.target))
+            }))
+        });
     },
 
     toggleFolder: (folderId) => {
@@ -239,6 +361,7 @@ const useStore = create((set, get) => ({
         if (!isBackground && !anchorNodeId) {
             set({ loading: true, error: null });
         }
+        const startTime = Date.now();
         try {
             const { expandedFolders, nodes: currentNodes } = get();
             const res = await axios.post('/api/graph', { expandedFolders: Array.from(expandedFolders) });
@@ -262,17 +385,23 @@ const useStore = create((set, get) => ({
                 return { ...edgeObj, style: { ...e.style, opacity: 0.6 } };
             });
 
-            set({
-                nodes: mergedNodes,
-                edges: edgesWithStyle,
-                adjacency: res.data.adjacency || {},
-                loading: false,
-                focusedNode: isBackground ? get().focusedNode : null
-            });
+            // Ensure at least 1000ms loading time
+            const elapsed = Date.now() - startTime;
+            const remaining = Math.max(0, 1000 - elapsed);
 
-            if (get().organizeMode === 'critical') {
-                get().organizeGraph('critical');
-            }
+            setTimeout(() => {
+                set({
+                    nodes: mergedNodes,
+                    edges: edgesWithStyle,
+                    adjacency: res.data.adjacency || {},
+                    loading: false,
+                    focusedNode: isBackground ? get().focusedNode : null
+                });
+
+                if (get().organizeMode === 'critical') {
+                    get().organizeGraph('critical');
+                }
+            }, remaining);
 
         } catch (err) {
             set({ error: err.message, loading: false });
