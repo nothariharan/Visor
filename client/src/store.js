@@ -26,6 +26,14 @@ const useStore = create((set, get) => ({
     lastSaveAttemptAt: null,
     isSearchModalOpen: false,
 
+    // --- Chronicle Time Travel State ---
+    commits: [],
+    commitsLoading: false,
+    isDetached: false,
+    currentCommit: null,
+    historicalChanges: null, // { added: [], modified: [], deleted: [] }
+    timeTravelLoading: false,
+
     // --- Layout Persistence ---
     loadLayout: async () => {
         console.log('[Visor] Attempting to load layout...');
@@ -590,7 +598,82 @@ const useStore = create((set, get) => ({
         }
     },
 
-    clearChronicleError: () => set({ chronicleError: null })
+    clearChronicleError: () => set({ chronicleError: null }),
+
+    // --- Chronicle Time Travel Actions ---
+
+    fetchHistory: async () => {
+        set({ commitsLoading: true });
+        try {
+            const res = await axios.get('/api/chronicle/history');
+            if (res.data.success) {
+                set({ commits: res.data.commits });
+            }
+        } catch (e) {
+            console.error('[Chronicle] Failed to fetch history', e);
+        } finally {
+            set({ commitsLoading: false });
+        }
+    },
+
+    initChronicleHead: async () => {
+        try {
+            const res = await axios.get('/api/chronicle/current');
+            if (res.data.success) {
+                set({
+                    isDetached: res.data.isDetached || false,
+                    currentCommit: res.data.commit || null
+                });
+            }
+        } catch (e) {
+            console.error('[Chronicle] Failed to get current head', e);
+        }
+    },
+
+    timeTravelTo: async (hash, force = false) => {
+        set({ timeTravelLoading: true });
+        try {
+            const res = await axios.post('/api/chronicle/checkout', { hash, force });
+            if (res.data.success) {
+                set({
+                    isDetached: true,
+                    currentCommit: hash,
+                    historicalChanges: res.data.changes
+                });
+                // Refresh graph to reflect the old file structure
+                await get().fetchGraph();
+                return { success: true };
+            } else {
+                return res.data; // Pass warnings back to UI
+            }
+        } catch (e) {
+            return { success: false, error: 'Time travel request failed' };
+        } finally {
+            set({ timeTravelLoading: false });
+        }
+    },
+
+    returnToPresent: async () => {
+        set({ timeTravelLoading: true });
+        try {
+            const res = await axios.post('/api/chronicle/return');
+            if (res.data.success) {
+                set({
+                    isDetached: false,
+                    currentCommit: null,
+                    historicalChanges: null
+                });
+                // Refresh graph to reflect current state
+                await get().fetchGraph();
+                return { success: true };
+            }
+            return res.data;
+        } catch (e) {
+            return { success: false, error: 'Failed to return to present' };
+        } finally {
+            set({ timeTravelLoading: false });
+        }
+    }
 }));
 
 useStore.getState().loadLayout();

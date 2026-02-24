@@ -1,5 +1,5 @@
 import React from 'react';
-import { Network, Share2, Zap, ArrowRight, Save, RotateCcw } from 'lucide-react';
+import { Network, Share2, Zap, ArrowRight, Save, RotateCcw, Clock } from 'lucide-react';
 import useStore from '../store';
 
 export default function Header({ currentMode, onModeChange }) {
@@ -9,6 +9,7 @@ export default function Header({ currentMode, onModeChange }) {
         { id: 'topography', label: 'Topography', icon: <Network size={14} />, desc: 'Raw file tree' },
         { id: 'skeleton', label: 'Skeleton', icon: <Share2 size={14} />, desc: 'Critical path' },
         { id: 'forge', label: 'Forge', icon: <Zap size={14} />, desc: 'Live execution' },
+        { id: 'chronicle', label: 'Chronicle', icon: <Clock size={14} />, desc: 'Spatial time travel' },
     ];
 
     const handleResetLayout = async () => {
@@ -41,7 +42,9 @@ export default function Header({ currentMode, onModeChange }) {
                             px-4 py-1.5 text-xs font-bold uppercase tracking-wider
                             border transition-all flex items-center gap-2
                             ${currentMode === mode.id
-                                ? 'bg-peach text-crust border-peach shadow-hard-peach'
+                                ? mode.id === 'chronicle'
+                                    ? 'bg-mauve text-crust border-mauve shadow-[2px_2px_0px_#1e1e2e]'
+                                    : 'bg-peach text-crust border-peach shadow-hard-peach'
                                 : 'bg-surface0 text-subtext0 border-surface1 hover:border-text'
                             }
                         `}

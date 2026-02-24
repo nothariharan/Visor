@@ -15,7 +15,13 @@ const {
     pushChanges,
     pullChanges,
     getFileDiff,
-    undoLastCommit
+    undoLastCommit,
+    getCommitHistory,
+    getCurrentHead,
+    checkSafety,
+    timeTravel,
+    returnToPresent,
+    getCommitDetails
 } = require('./git');
 const { MultiRuntimeDetector } = require('./project/detection/MultiRuntimeDetector');
 const { ProcessRunner } = require('./runner/ProcessRunner');
@@ -56,7 +62,7 @@ app.get('/api/visor/load-layout', async (req, res) => {
             const content = await fs.readFile(layoutPath, 'utf-8');
             // Basic corruption check
             if (content.trim() === '') {
-                 return res.json({ exists: false, reason: 'empty' });
+                return res.json({ exists: false, reason: 'empty' });
             }
             const data = JSON.parse(content);
             res.json({ exists: true, ...data });
@@ -230,6 +236,40 @@ app.get('/api/chronicle/diff', async (req, res) => {
 
 app.post('/api/chronicle/undo', async (req, res) => {
     const result = await undoLastCommit(ROOT_DIR);
+    res.json(result);
+});
+
+// --- Chronicle Time Travel Endpoints ---
+app.get('/api/chronicle/history', async (req, res) => {
+    const result = await getCommitHistory(ROOT_DIR);
+    res.json(result);
+});
+
+app.get('/api/chronicle/current', async (req, res) => {
+    const result = await getCurrentHead(ROOT_DIR);
+    res.json(result);
+});
+
+app.get('/api/chronicle/check-safety', async (req, res) => {
+    const result = await checkSafety(ROOT_DIR);
+    res.json(result);
+});
+
+app.post('/api/chronicle/checkout', async (req, res) => {
+    const { hash, force } = req.body;
+    if (!hash) return res.status(400).json({ error: 'Commit hash required' });
+    const result = await timeTravel(ROOT_DIR, hash, { force: !!force });
+    res.json(result);
+});
+
+app.post('/api/chronicle/return', async (req, res) => {
+    const result = await returnToPresent(ROOT_DIR);
+    res.json(result);
+});
+
+app.get('/api/chronicle/commit/:hash', async (req, res) => {
+    const { hash } = req.params;
+    const result = await getCommitDetails(ROOT_DIR, hash);
     res.json(result);
 });
 

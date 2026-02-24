@@ -5,7 +5,7 @@ import useStore from '../store';
 import { getFileTypeStyles } from '../utils/fileColors';
 
 const TerminalNode = ({ id, data, selected }) => {
-  const { activeErrors, searchQuery } = useStore();
+  const { activeErrors, searchQuery, historicalChanges } = useStore();
 
   const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
   const normalizedId = normalize(id);
@@ -22,13 +22,23 @@ const TerminalNode = ({ id, data, selected }) => {
   const isExpanded = data.expanded;
   const isSearchResult = searchQuery && data?.label?.toLowerCase().includes(searchQuery.toLowerCase());
 
+  // --- Chronicle diff status ---
+  const chronicleStatus = historicalChanges
+    ? historicalChanges.added?.some(f => normalizedId.endsWith(f.replace(/\\/g, '/').toLowerCase())) ? 'added'
+      : historicalChanges.deleted?.some(f => normalizedId.endsWith(f.replace(/\\/g, '/').toLowerCase())) ? 'deleted'
+        : historicalChanges.modified?.some(f => normalizedId.endsWith(f.replace(/\\/g, '/').toLowerCase())) ? 'modified'
+          : null
+    : null;
+
   // --- Style Calculation ---
-  // Use color values directly instead of Tailwind classes to avoid conflicts
-  const statusBorderColor = isError ? '#ef4444' : // red
-    isWarning ? '#f9e2af' : // yellow
-      isExecuting ? '#a6e3a1' : // green
-        selected ? '#89b4fa' : // blue
-          '#585b70'; // default surface1
+  const statusBorderColor = chronicleStatus === 'added' ? '#a6e3a1'
+    : chronicleStatus === 'modified' ? '#f9e2af'
+      : chronicleStatus === 'deleted' ? '#f38ba8'
+        : isError ? '#ef4444'
+          : isWarning ? '#f9e2af'
+            : isExecuting ? '#a6e3a1'
+              : selected ? '#89b4fa'
+                : '#585b70';
 
   const shadowColor = isError ? 'shadow-hard-red' :
     isExecuting ? 'shadow-hard-green' :
@@ -38,7 +48,6 @@ const TerminalNode = ({ id, data, selected }) => {
     isError ? 'animate-pulse' : '';
 
   const errorMessage = errorData?.message || data.errorMessage;
-  const errorLine = errorData?.line || data.line;
 
   // === CONTAINER MODE (Expanded Folder) ===
   if (isExpanded && data.type === 'folder') {
@@ -72,7 +81,7 @@ const TerminalNode = ({ id, data, selected }) => {
         ${isSearchResult ? 'ring-2 ring-yellow ring-offset-2 ring-offset-surface0' : ''}
       `}
       style={{
-        borderColor: statusBorderColor, // Use the calculated color value
+        borderColor: statusBorderColor,
         borderTopColor: fileColor,
         borderTopWidth: '4px'
       }}
@@ -103,7 +112,16 @@ const TerminalNode = ({ id, data, selected }) => {
           <span className="font-bold text-sm truncate" title={data?.label || ''}>{data?.label || ''}</span>
         </div>
 
-        {/* Metadata & Tags */}
+        {/* Chronicle diff badge */}
+        {chronicleStatus && (
+          <div className={`mt-1 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded w-fit
+            ${chronicleStatus === 'added' ? 'bg-green/10 text-green'
+              : chronicleStatus === 'deleted' ? 'bg-red/10 text-red'
+                : 'bg-yellow/10 text-yellow'}
+          `}>
+            {chronicleStatus}
+          </div>
+        )}
       </div>
 
       {/* Error/Warning Message */}

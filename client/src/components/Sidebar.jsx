@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Folder, GitBranch } from 'lucide-react';
 import FileTree from './FileTree';
-import ChroniclePanel from './ChroniclePanel';
+import SourcePanel from './SourcePanel';
 
 export default function Sidebar() {
     const [activeTab, setActiveTab] = useState('files');
@@ -19,19 +19,19 @@ export default function Sidebar() {
                     <Folder size={14} /> Files
                 </button>
                 <button
-                    onClick={() => setActiveTab('chronicle')}
+                    onClick={() => setActiveTab('source')}
                     className={`flex-1 flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider transition-all
-                        ${activeTab === 'chronicle' ? 'text-mauve border-b-2 border-mauve' : 'text-subtext0 hover:text-text'}
+                        ${activeTab === 'source' ? 'text-blue border-b-2 border-blue' : 'text-subtext0 hover:text-text'}
                     `}
                 >
-                    <GitBranch size={14} /> Chronicle
+                    <GitBranch size={14} /> Source
                 </button>
             </div>
 
             {/* Content */}
             <div className="flex-1 overflow-hidden">
                 {activeTab === 'files' && <FileTree />}
-                {activeTab === 'chronicle' && <ChroniclePanel />}
+                {activeTab === 'source' && <SourcePanel />}
             </div>
         </div>
     );

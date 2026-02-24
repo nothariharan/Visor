@@ -7,6 +7,8 @@ import SearchBar from './components/SearchBar';
 import SearchModal from './components/SearchModal';
 import CodeEditor from './components/CodeEditor';
 import ErrorToast from './components/ErrorToast';
+import ReturnButton from './components/ReturnButton';
+import ChroniclePanel from './components/ChroniclePanel';
 import io from 'socket.io-client';
 import useStore from './store';
 import LegendPanel from './components/LegendPanel';
@@ -38,6 +40,9 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const { handleExecutionError, clearErrors, isSearchModalOpen, setIsSearchModalOpen, lastSaveTime, isSavingLayout } = useStore();
 
+  // Right panel is driven by mode — no manual toggle needed for chronicle
+  const showRightPanel = currentMode === 'forge' || currentMode === 'chronicle';
+
   // Refresh the "saved X ago" text every second
   useEffect(() => {
     const interval = setInterval(() => {
@@ -63,13 +68,9 @@ function App() {
     return () => socket.close();
   }, [handleExecutionError, clearErrors]);
 
-  // Sync Process Manager visibility with mode
+  // Sync Process Manager visibility with mode (forge only)
   useEffect(() => {
-    if (currentMode === 'forge') {
-      setShowProcessManager(true);
-    } else {
-      setShowProcessManager(false);
-    }
+    setShowProcessManager(currentMode === 'forge');
   }, [currentMode]);
 
   // Setup Cmd+P keyboard shortcut
@@ -82,6 +83,7 @@ function App() {
       {/* Global Components */}
       <CodeEditor />
       <ErrorToast />
+      <ReturnButton />
       <SearchModal isOpen={isSearchModalOpen} onClose={() => setIsSearchModalOpen(false)} />
 
       {/* Header */}
@@ -110,8 +112,13 @@ function App() {
           <LegendPanel isOpen={showLegend} onClose={() => setShowLegend(false)} />
         </div>
 
-        {/* ProcessManager (Right) */}
-        {showProcessManager && (
+        {/* Right Panel: Chronicle Timeline or ProcessManager */}
+        {currentMode === 'chronicle' && (
+          <div className="w-96 bg-crust border-l-2 border-mauve/40 flex flex-col overflow-hidden">
+            <ChroniclePanel />
+          </div>
+        )}
+        {currentMode === 'forge' && showProcessManager && (
           <ProcessManager />
         )}
       </div>
