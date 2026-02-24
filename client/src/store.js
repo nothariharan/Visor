@@ -24,6 +24,7 @@ const useStore = create((set, get) => ({
     // Guard fields to avoid duplicate/rapid consecutive saves
     lastLayoutHash: null,
     lastSaveAttemptAt: null,
+    isSearchModalOpen: false,
 
     // --- Layout Persistence ---
     loadLayout: async () => {
@@ -114,6 +115,7 @@ const useStore = create((set, get) => ({
     setActiveRunDir: (dir) => set({ activeRunDir: dir }),
     setSelectedPath: (path) => set({ selectedPath: path }),
     setSearchQuery: (query) => set({ searchQuery: query }),
+    setIsSearchModalOpen: (isOpen) => set({ isSearchModalOpen: isOpen }),
 
     handleExecutionError: (errorData) => {
         const { executionPath, primaryFile, error } = errorData;
@@ -197,6 +199,7 @@ const useStore = create((set, get) => ({
         // ... (rest of the function is unchanged)
     },
 
+    setEditingFile: (file) => set({ editingFile: file }),
     closeFile: () => set({ editingFile: null }),
     updateFileContent: (newContent) => {
         const current = get().editingFile;

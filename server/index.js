@@ -316,6 +316,205 @@ app.post('/api/execution/clear-errors', (req, res) => {
     res.json({ success: true });
 });
 
+// --- File Search & Indexing ---
+let fileIndex = [];
+let lastIndexTime = 0;
+const INDEX_CACHE_DURATION = 5000; // 5 seconds
+
+// Simple fuzzy matching algorithm
+function fuzzyMatch(query, filename) {
+    query = query.toLowerCase();
+    filename = filename.toLowerCase();
+
+    let queryIdx = 0;
+    let matchScore = 0;
+
+    for (let i = 0; i < filename.length && queryIdx < query.length; i++) {
+        if (filename[i] === query[queryIdx]) {
+            queryIdx++;
+            matchScore += 1;
+            // Bonus for consecutive matches
+            if (i > 0 && filename[i - 1] === query[queryIdx - 2]) {
+                matchScore += 0.5;
+            }
+        }
+    }
+
+    // Return false if not all characters were found in order
+    if (queryIdx !== query.length) return false;
+
+    // Penalize matches further into the string
+    return matchScore - filename.length * 0.1;
+}
+
+// Get matched character positions for highlighting
+function getMatchPositions(query, filename) {
+    query = query.toLowerCase();
+    filename = filename.toLowerCase();
+
+    const positions = [];
+    let queryIdx = 0;
+
+    for (let i = 0; i < filename.length && queryIdx < query.length; i++) {
+        if (filename[i] === query[queryIdx]) {
+            positions.push(i);
+            queryIdx++;
+        }
+    }
+
+    return queryIdx === query.length ? positions : [];
+}
+
+// Build file index by scanning the directory
+async function buildFileIndex() {
+    const now = Date.now();
+
+    // Use cache if fresh
+    if (fileIndex.length > 0 && now - lastIndexTime < INDEX_CACHE_DURATION) {
+        return fileIndex;
+    }
+
+    const index = [];
+    const ignoreDirs = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.visor', '.vscode', '__pycache__']);
+
+    async function scanDir(dir, relativePrefix = '') {
+        try {
+            const dirents = await fs.readdir(dir, { withFileTypes: true });
+
+            for (const dirent of dirents) {
+                if (dirent.name.startsWith('.') && !relativePrefix) continue; // Skip hidden at root
+                if (ignoreDirs.has(dirent.name)) continue;
+
+                const fullPath = path.join(dir, dirent.name);
+                const relativePath = path.join(relativePrefix, dirent.name);
+
+                if (dirent.isDirectory()) {
+                    await scanDir(fullPath, relativePath);
+                } else {
+                    index.push({
+                        name: dirent.name,
+                        path: fullPath,
+                        relativePath: relativePath,
+                        ext: path.extname(dirent.name)
+                    });
+
+                    if (index.length >= 500) {
+                        break; // Limit to 500 files
+                    }
+                }
+            }
+        } catch (e) {
+            // Permission denied or other errors
+        }
+    }
+
+    await scanDir(ROOT_DIR);
+    fileIndex = index;
+    lastIndexTime = now;
+
+    return index;
+}
+
+// GET /api/search/files?q=query
+app.get('/api/search/files', async (req, res) => {
+    try {
+        const { q = '' } = req.query;
+
+        if (!q || q.length < 1) {
+            return res.json({ results: [] });
+        }
+
+        const index = await buildFileIndex();
+        const results = [];
+
+        for (const file of index) {
+            const score = fuzzyMatch(q, file.name);
+
+            if (score !== false) {
+                const positions = getMatchPositions(q, file.name);
+                results.push({
+                    ...file,
+                    score,
+                    matchPositions: positions
+                });
+            }
+        }
+
+        // Sort by score (descending) and limit to 50
+        results.sort((a, b) => b.score - a.score);
+
+        res.json({
+            results: results.slice(0, 50),
+            total: results.length
+        });
+    } catch (error) {
+        console.error('Search error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/search/recent
+app.get('/api/search/recent', async (req, res) => {
+    try {
+        const prefsPath = path.join(VISOR_DIR, 'preferences.json');
+        let prefs = {};
+
+        if (await fs.exists(prefsPath)) {
+            prefs = await fs.readJson(prefsPath);
+        }
+
+        const recentFiles = prefs.recentFiles || [];
+        // Sort by lastOpened (newest first)
+        recentFiles.sort((a, b) => b.lastOpened - a.lastOpened);
+
+        res.json({ recent: recentFiles.slice(0, 20) });
+    } catch (error) {
+        console.error('Recent files error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/search/recent (track file opened)
+app.post('/api/search/recent', async (req, res) => {
+    try {
+        const { path: filePath } = req.body;
+
+        if (!filePath) {
+            return res.status(400).json({ error: 'Missing path' });
+        }
+
+        const prefsPath = path.join(VISOR_DIR, 'preferences.json');
+        let prefs = {};
+
+        if (await fs.exists(prefsPath)) {
+            prefs = await fs.readJson(prefsPath);
+        }
+
+        let recentFiles = prefs.recentFiles || [];
+
+        // Remove if already exists
+        recentFiles = recentFiles.filter(f => f.path !== filePath);
+
+        // Add to front
+        recentFiles.unshift({
+            path: filePath,
+            lastOpened: Date.now()
+        });
+
+        // Keep only 20 most recent
+        recentFiles = recentFiles.slice(0, 20);
+
+        prefs.recentFiles = recentFiles;
+        await fs.ensureDir(VISOR_DIR);
+        await fs.writeJson(prefsPath, prefs, { spaces: 2 });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Recent files tracking error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // SPA Catch-all
 app.get(/.*/, (req, res) => {
     if (!req.path.startsWith('/api') && fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {

@@ -4,19 +4,21 @@ import GraphCanvas from './components/GraphCanvas';
 import Sidebar from './components/Sidebar';
 import ProcessManager from './components/ProcessManager';
 import SearchBar from './components/SearchBar';
+import SearchModal from './components/SearchModal';
 import CodeEditor from './components/CodeEditor';
 import ErrorToast from './components/ErrorToast';
 import io from 'socket.io-client';
 import useStore from './store';
 import LegendPanel from './components/LegendPanel';
 import { Eye, Zap } from 'lucide-react';
+import { useSearchShortcut } from './hooks/useSearchShortcut';
 
 function App() {
   const [currentMode, setCurrentMode] = useState('skeleton');
   const [showSidebar, setShowSidebar] = useState(true);
   const [showProcessManager, setShowProcessManager] = useState(true);
   const [showLegend, setShowLegend] = useState(false);
-  const { handleExecutionError, clearErrors } = useStore();
+  const { handleExecutionError, clearErrors, isSearchModalOpen, setIsSearchModalOpen } = useStore();
 
   useEffect(() => {
     // Global Socket for App-wide Events (Error Visualization)
@@ -44,11 +46,17 @@ function App() {
     }
   }, [currentMode]);
 
+  // Setup Cmd+P keyboard shortcut
+  useSearchShortcut(() => {
+    setIsSearchModalOpen(true);
+  });
+
   return (
     <div className="h-screen w-screen bg-base font-mono flex flex-col overflow-hidden text-text">
       {/* Global Components */}
       <CodeEditor />
       <ErrorToast />
+      <SearchModal isOpen={isSearchModalOpen} onClose={() => setIsSearchModalOpen(false)} />
 
       {/* Header */}
       <Header
