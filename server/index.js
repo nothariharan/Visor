@@ -132,8 +132,17 @@ app.post('/api/graph', async (req, res) => {
     try {
         const { expandedFolders } = req.body; // Array of paths
         const data = await generateGraph(ROOT_DIR, expandedFolders || [], config);
-        res.json(data);
+        res.json({ ...data, root: ROOT_DIR });
 
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/graph - Return graph metadata including root directory
+app.get('/api/graph', async (req, res) => {
+    try {
+        res.json({ root: ROOT_DIR });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -380,8 +389,10 @@ app.get('/api/project/detect', async (req, res) => {
 app.get('/api/runtimes/detect', async (req, res) => {
     try {
         const targetDir = req.query.path || ROOT_DIR;
+        console.log('[Runtimes] Detecting runtimes in:', targetDir);
         const detector = new MultiRuntimeDetector(targetDir);
         const runtimes = await detector.detectAll();
+        console.log('[Runtimes] Found runtimes:', runtimes.map(r => ({ id: r.id, name: r.name, port: r.port })));
         res.json({ runtimes });
     } catch (error) {
         console.error("Detection error:", error);

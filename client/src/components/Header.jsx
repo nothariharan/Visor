@@ -1,5 +1,5 @@
 import React from 'react';
-import { Network, Share2, Zap, ArrowRight, Save, RotateCcw, Clock } from 'lucide-react';
+import { Network, Share2, Zap, ArrowRight, Save, RotateCcw, Clock, Play } from 'lucide-react';
 import useStore from '../store';
 
 export default function Header({ currentMode, onModeChange }) {
@@ -16,6 +16,10 @@ export default function Header({ currentMode, onModeChange }) {
         if (confirm('Are you sure you want to reset the layout? This will clear all saved positions and restore the default layout.')) {
             await resetLayout();
         }
+    };
+
+    const handleRun = () => {
+        window.open('/?mode=forge', '_blank');
     };
 
     return (
@@ -54,6 +58,15 @@ export default function Header({ currentMode, onModeChange }) {
                         {mode.label}
                     </button>
                 ))}
+                 <button
+                    onClick={handleRun}
+                    disabled={currentMode !== 'forge'}
+                    className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 bg-green text-crust border-green shadow-hard-green disabled:bg-surface0 disabled:text-subtext0 disabled:border-surface1 disabled:shadow-none"
+                    title="Run in Forge Mode"
+                >
+                    <Play size={14} />
+                    Run
+                </button>
             </div>
 
             {/* Right Section: Controls & Status */}
