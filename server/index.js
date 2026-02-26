@@ -389,6 +389,132 @@ app.get('/api/runtimes/detect', async (req, res) => {
     }
 });
 
+// GET /api/executables/find - Find all executable files in project
+app.get('/api/executables/find', async (req, res) => {
+    try {
+        const executables = [];
+        const ignoreDirs = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.visor', '.next', 'out']);
+        const executableExtensions = new Set(['.sh', '.bash', '.py', '.rb', '.go', '.ts', '.js', '.pl', '.php', '.jar', '.exe', '.bat', '.cmd', '.ps1']);
+
+        async function scanDir(dir) {
+            try {
+                const entries = await fs.readdir(dir, { withFileTypes: true });
+
+                for (const entry of entries) {
+                    if (entry.isDirectory()) {
+                        if (!ignoreDirs.has(entry.name)) {
+                            await scanDir(path.join(dir, entry.name));
+                        }
+                    } else if (entry.isFile()) {
+                        const fullPath = path.join(dir, entry.name);
+                        const ext = path.extname(entry.name).toLowerCase();
+                        const relativePath = path.relative(ROOT_DIR, fullPath);
+
+                        // Check file extension OR check for shebang (executable bit on Unix)
+                        if (executableExtensions.has(ext)) {
+                            try {
+                                const stats = await fs.stat(fullPath);
+                                // On Windows, just check extension; on Unix, check executable bit
+                                const isExecutable = process.platform === 'win32'
+                                    ? true
+                                    : (stats.mode & 0o111) !== 0;
+
+                                if (isExecutable) {
+                                    executables.push({
+                                        path: relativePath,
+                                        name: entry.name,
+                                        fullPath: fullPath,
+                                        extension: ext,
+                                        type: getExecutableType(ext, entry.name)
+                                    });
+                                }
+                            } catch (err) {
+                                // Skip files we can't stat
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                // Skip directories we can't read
+            }
+        }
+
+        function getExecutableType(ext, name) {
+            const extLower = ext.toLowerCase();
+            if (['.sh', '.bash'].includes(extLower)) return 'shell';
+            if (['.py'].includes(extLower)) return 'python';
+            if (['.js', '.ts'].includes(extLower)) return 'node';
+            if (['.rb'].includes(extLower)) return 'ruby';
+            if (['.go'].includes(extLower)) return 'go';
+            if (['.pl'].includes(extLower)) return 'perl';
+            if (['.php'].includes(extLower)) return 'php';
+            if (['.jar'].includes(extLower)) return 'java';
+            if (['.exe', '.bat', '.cmd', '.ps1'].includes(extLower)) return 'windows';
+            return 'unknown';
+        }
+
+        await scanDir(ROOT_DIR);
+
+        // Sort by name
+        executables.sort((a, b) => a.name.localeCompare(b.name));
+
+        res.json({ executables });
+    } catch (error) {
+        console.error("Executable detection error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/executables/run - Run an executable file
+app.post('/api/executables/run', async (req, res) => {
+    try {
+        const { path: filePath, args = [], cwd } = req.body;
+
+        if (!filePath) {
+            return res.status(400).json({ error: 'File path required' });
+        }
+
+        const fullPath = path.resolve(ROOT_DIR, filePath);
+
+        // Security: Ensure path is within ROOT_DIR
+        if (!fullPath.startsWith(ROOT_DIR)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Use a unique ID for this execution
+        const executionId = `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const workingDir = cwd || path.dirname(fullPath);
+
+        // Detect command based on file extension
+        let command = fullPath;
+        const ext = path.extname(filePath).toLowerCase();
+
+        if (ext === '.py') {
+            command = `python "${fullPath}"`;
+        } else if (ext === '.rb') {
+            command = `ruby "${fullPath}"`;
+        } else if (ext === '.sh' || ext === '.bash') {
+            command = `bash "${fullPath}"`;
+        } else if (ext === '.js' || ext === '.ts') {
+            command = ext === '.ts' ? `npx ts-node "${fullPath}"` : `node "${fullPath}"`;
+        } else if (ext === '.go') {
+            command = `go run "${fullPath}"`;
+        }
+
+        // Start the process
+        const result = processRunner.start(executionId, command, workingDir);
+
+        res.json({
+            success: true,
+            executionId,
+            message: `Started executing ${path.basename(filePath)}`
+        });
+    } catch (error) {
+        console.error("Executable run error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // API: Process Control
 app.post('/api/process/start', async (req, res) => {
     const { id, command, cwd } = req.body;
@@ -686,26 +812,41 @@ const initializeVisorDir = async () => {
     }
 };
 
-// Start server
-server.listen(PORT, async () => {
-    await initializeVisorDir();
+// Start server with port fallback
+const startServer = (port) => {
+    server.listen(port, async () => {
+        await initializeVisorDir();
 
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Analyzing project at ${ROOT_DIR}...`);
-    try {
-        await generateGraph(ROOT_DIR);
-        console.log('Initial graph analysis complete.');
-    } catch (e) {
-        console.error('Initial graph analysis failed:', e);
-    }
+        console.log(`\n✅ Server running on http://localhost:${port}`);
+        console.log(`📍 Analyzing project at ${ROOT_DIR}...`);
+        try {
+            await generateGraph(ROOT_DIR);
+            console.log('✅ Initial graph analysis complete.\n');
+        } catch (e) {
+            console.error('Initial graph analysis failed:', e);
+        }
 
-    // --- File Watcher for Chronicle Auto-Refresh ---
-    chokidar.watch(ROOT_DIR, {
-        ignored: [/(^|[\/\\])\../, '**/node_modules/**', '**/dist/**', '**/build/**'],
-        persistent: true,
-        ignoreInitial: true
-    }).on('all', (event, path) => {
-        // Emit event to all connected clients
-        io.emit('chronicle:update', { event, path });
+        // --- File Watcher for Chronicle Auto-Refresh ---
+        chokidar.watch(ROOT_DIR, {
+            ignored: [/(^|[\/\\])\../, '**/node_modules/**', '**/dist/**', '**/build/**'],
+            persistent: true,
+            ignoreInitial: true
+        }).on('all', (event, path) => {
+            // Emit event to all connected clients
+            io.emit('chronicle:update', { event, path });
+        });
     });
-});
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.warn(`⚠️  Port ${port} is already in use, trying port ${port + 1}...`);
+            startServer(port + 1);
+        } else {
+            console.error('Server error:', err);
+            process.exit(1);
+        }
+    });
+};
+
+startServer(PORT);
+
