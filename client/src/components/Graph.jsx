@@ -56,6 +56,13 @@ const GraphContent = () => {
 
     const hasLoadedRef = React.useRef(false);
 
+    // Reset hasLoadedRef when nodes cleared (so reset-layout can trigger fitView again)
+    useEffect(() => {
+        if (nodes.length === 0) {
+            hasLoadedRef.current = false;
+        }
+    }, [nodes.length]);
+
     // On mount or when significant structure changes, fit view
     useEffect(() => {
         if (nodes.length > 0 && !loading && !hasLoadedRef.current) {

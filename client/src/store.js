@@ -337,17 +337,19 @@ const useStore = create((set, get) => ({
             // Call backend to delete saved layout
             await axios.post('/api/visor/reset-layout');
 
-            // Reset local state
+            // Reset local state - clear everything including saved cache
             set({
                 nodes: [],
                 edges: [],
                 viewport: null,
                 expandedFolders: new Set(),
                 organizeMode: 'all',
-                loading: true
+                loading: true,
+                lastLayoutHash: null,
+                lastSaveAttemptAt: null
             });
 
-            // Fetch fresh graph with no saved positions
+            // Fetch fresh graph with no saved positions - this will regenerate layout
             await get().fetchGraph();
 
             console.log('✅ Layout reset to default');

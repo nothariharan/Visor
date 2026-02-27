@@ -132,8 +132,17 @@ app.post('/api/graph', async (req, res) => {
     try {
         const { expandedFolders } = req.body; // Array of paths
         const data = await generateGraph(ROOT_DIR, expandedFolders || [], config);
-        res.json(data);
+        res.json({ ...data, root: ROOT_DIR });
 
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/graph - Return graph metadata including root directory
+app.get('/api/graph', async (req, res) => {
+    try {
+        res.json({ root: ROOT_DIR });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -329,6 +338,7 @@ processRunner.on('error', (data) => io.emit('process:error', data));
 processRunner.on('execution:error', (data) => io.emit('execution:error', data));
 processRunner.on('execution:warning', (data) => io.emit('execution:warning', data));
 processRunner.on('execution:trace', (data) => io.emit('execution:trace', data));
+processRunner.on('url', (data) => io.emit('process:url', data));
 
 // --- Browser Error Handling ---
 app.get('/error-reporter.js', (req, res) => {
@@ -380,11 +390,139 @@ app.get('/api/project/detect', async (req, res) => {
 app.get('/api/runtimes/detect', async (req, res) => {
     try {
         const targetDir = req.query.path || ROOT_DIR;
+        console.log('[Runtimes] Detecting runtimes in:', targetDir);
         const detector = new MultiRuntimeDetector(targetDir);
         const runtimes = await detector.detectAll();
+        console.log('[Runtimes] Found runtimes:', runtimes.map(r => ({ id: r.id, name: r.name, port: r.port })));
         res.json({ runtimes });
     } catch (error) {
         console.error("Detection error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/executables/find - Find all executable files in project
+app.get('/api/executables/find', async (req, res) => {
+    try {
+        const executables = [];
+        const ignoreDirs = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.visor', '.next', 'out']);
+        const executableExtensions = new Set(['.sh', '.bash', '.py', '.rb', '.go', '.ts', '.js', '.pl', '.php', '.jar', '.exe', '.bat', '.cmd', '.ps1']);
+
+        async function scanDir(dir) {
+            try {
+                const entries = await fs.readdir(dir, { withFileTypes: true });
+
+                for (const entry of entries) {
+                    if (entry.isDirectory()) {
+                        if (!ignoreDirs.has(entry.name)) {
+                            await scanDir(path.join(dir, entry.name));
+                        }
+                    } else if (entry.isFile()) {
+                        const fullPath = path.join(dir, entry.name);
+                        const ext = path.extname(entry.name).toLowerCase();
+                        const relativePath = path.relative(ROOT_DIR, fullPath);
+
+                        // Check file extension OR check for shebang (executable bit on Unix)
+                        if (executableExtensions.has(ext)) {
+                            try {
+                                const stats = await fs.stat(fullPath);
+                                // On Windows, just check extension; on Unix, check executable bit
+                                const isExecutable = process.platform === 'win32'
+                                    ? true
+                                    : (stats.mode & 0o111) !== 0;
+
+                                if (isExecutable) {
+                                    executables.push({
+                                        path: relativePath,
+                                        name: entry.name,
+                                        fullPath: fullPath,
+                                        extension: ext,
+                                        type: getExecutableType(ext, entry.name)
+                                    });
+                                }
+                            } catch (err) {
+                                // Skip files we can't stat
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                // Skip directories we can't read
+            }
+        }
+
+        function getExecutableType(ext, name) {
+            const extLower = ext.toLowerCase();
+            if (['.sh', '.bash'].includes(extLower)) return 'shell';
+            if (['.py'].includes(extLower)) return 'python';
+            if (['.js', '.ts'].includes(extLower)) return 'node';
+            if (['.rb'].includes(extLower)) return 'ruby';
+            if (['.go'].includes(extLower)) return 'go';
+            if (['.pl'].includes(extLower)) return 'perl';
+            if (['.php'].includes(extLower)) return 'php';
+            if (['.jar'].includes(extLower)) return 'java';
+            if (['.exe', '.bat', '.cmd', '.ps1'].includes(extLower)) return 'windows';
+            return 'unknown';
+        }
+
+        await scanDir(ROOT_DIR);
+
+        // Sort by name
+        executables.sort((a, b) => a.name.localeCompare(b.name));
+
+        res.json({ executables });
+    } catch (error) {
+        console.error("Executable detection error:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/executables/run - Run an executable file
+app.post('/api/executables/run', async (req, res) => {
+    try {
+        const { path: filePath, args = [], cwd } = req.body;
+
+        if (!filePath) {
+            return res.status(400).json({ error: 'File path required' });
+        }
+
+        const fullPath = path.resolve(ROOT_DIR, filePath);
+
+        // Security: Ensure path is within ROOT_DIR
+        if (!fullPath.startsWith(ROOT_DIR)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Use a unique ID for this execution
+        const executionId = `exec-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const workingDir = cwd || path.dirname(fullPath);
+
+        // Detect command based on file extension
+        let command = fullPath;
+        const ext = path.extname(filePath).toLowerCase();
+
+        if (ext === '.py') {
+            command = `python "${fullPath}"`;
+        } else if (ext === '.rb') {
+            command = `ruby "${fullPath}"`;
+        } else if (ext === '.sh' || ext === '.bash') {
+            command = `bash "${fullPath}"`;
+        } else if (ext === '.js' || ext === '.ts') {
+            command = ext === '.ts' ? `npx ts-node "${fullPath}"` : `node "${fullPath}"`;
+        } else if (ext === '.go') {
+            command = `go run "${fullPath}"`;
+        }
+
+        // Start the process
+        const result = processRunner.start(executionId, command, workingDir);
+
+        res.json({
+            success: true,
+            executionId,
+            message: `Started executing ${path.basename(filePath)}`
+        });
+    } catch (error) {
+        console.error("Executable run error:", error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -645,6 +783,158 @@ app.get(/.*/, (req, res) => {
     }
 });
 
+// ------------------ Forge Endpoints ------------------
+
+// GET /api/forge/executable-folders
+// Returns an array of detected runtimes grouped by folder (minimal metadata)
+app.get('/api/forge/executable-folders', async (req, res) => {
+    try {
+        const detector = new MultiRuntimeDetector(ROOT_DIR);
+        const runtimes = await detector.detectAll();
+
+        // Map runtimes to folder cards; allow multiple runtimes per folder
+        const grouped = {};
+        for (const r of runtimes) {
+            const folderPath = r.workingDir || ROOT_DIR;
+            if (!folderPath.startsWith(ROOT_DIR)) continue; // Safety
+            if (!grouped[folderPath]) {
+                grouped[folderPath] = {
+                    name: r.name || path.basename(folderPath),
+                    path: folderPath,
+                    description: r.description || r.framework || '',
+                    executables: [],
+                    metadata: {
+                        fileCount: 0,
+                        lastModified: null
+                    }
+                };
+            }
+            grouped[folderPath].executables.push({ name: r.name, command: r.command, id: r.id, framework: r.framework });
+        }
+
+        // Populate metadata (fileCount, lastModified) for each folder (async)
+        await Promise.all(Object.keys(grouped).map(async (fp) => {
+            try {
+                const stats = await fs.stat(fp);
+                grouped[fp].metadata.lastModified = stats.mtimeMs;
+            } catch (e) {
+                // ignore
+            }
+
+            // quick file count (non-recursive to be fast)
+            try {
+                const files = await fs.readdir(fp);
+                grouped[fp].metadata.fileCount = files.length;
+            } catch (e) {
+                grouped[fp].metadata.fileCount = 0;
+            }
+        }));
+
+        res.json({ folders: Object.values(grouped) });
+    } catch (error) {
+        console.error('Error listing executable folders:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/forge/inspect
+// Body: { path: string }
+// Returns: { path, metadata, executables: [{ name, command, id, framework }] }
+app.post('/api/forge/inspect', async (req, res) => {
+    try {
+        const { path: folderPath } = req.body;
+        if (!folderPath) return res.status(400).json({ error: 'Missing path' });
+
+        const absolute = path.resolve(folderPath);
+        if (!absolute.startsWith(ROOT_DIR)) return res.status(403).json({ error: 'Access denied' });
+
+        // Use detector to find runtimes and filter by workingDir
+        const detector = new MultiRuntimeDetector(absolute);
+        const runtimes = await detector.detectAll();
+
+        // Build metadata
+        const metadata = {};
+        try {
+            const stats = await fs.stat(absolute);
+            metadata.lastModified = stats.mtimeMs;
+        } catch (e) {
+            metadata.lastModified = null;
+        }
+        try {
+            const files = await fs.readdir(absolute);
+            metadata.fileCount = files.length;
+        } catch (e) {
+            metadata.fileCount = 0;
+        }
+
+        res.json({ path: absolute, metadata, executables: runtimes.map(r => ({ name: r.name, command: r.command, id: r.id, framework: r.framework })) });
+    } catch (error) {
+        console.error('Error inspecting folder:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/forge/run
+// Body: { path: string, command?: string }
+// Starts the chosen command in the folder. If command is omitted, uses the first detected executable.
+app.post('/api/forge/run', async (req, res) => {
+    try {
+        const { path: folderPath, command } = req.body;
+        if (!folderPath) return res.status(400).json({ error: 'Missing path' });
+
+        const absolute = path.resolve(folderPath);
+        if (!absolute.startsWith(ROOT_DIR)) return res.status(403).json({ error: 'Access denied' });
+
+        // Inspect to find candidates
+        const detector = new MultiRuntimeDetector(absolute);
+        const runtimes = await detector.detectAll();
+        if (!runtimes || runtimes.length === 0) {
+            return res.status(400).json({ error: 'No executable candidates found in folder.' });
+        }
+
+        // Choose command
+        let selected = null;
+        if (command) selected = runtimes.find(r => r.command === command || r.id === command || r.name === command);
+        if (!selected) selected = runtimes[0];
+        if (!selected) return res.status(400).json({ error: 'No executable selected.' });
+
+        // Safety: allow only commands that are simple npm/yarn/pnpm or node <file> or common start scripts
+        const allowedPatterns = [/^npm( run)? /, /^yarn /, /^pnpm( run)? /, /^node /, /^next /, /^vite /, /^react-scripts /, /^ng /];
+        const isAllowed = allowedPatterns.some(p => p.test((selected.command || '').toString()));
+        if (!isAllowed) {
+            // As a fallback, allow plain commands like 'serve' or 'dev' if referenced as npm scripts (prefer npm run <script>)
+            // For safety, if command doesn't match allowlist, reject
+            return res.status(403).json({ error: 'Command not allowed to run for safety reasons.' });
+        }
+
+        // Build command string. If the runtime already provides a full command use it; otherwise attempt to convert shorthand into 'npm run'
+        let cmd = selected.command;
+        if (!cmd.startsWith('npm') && !cmd.startsWith('yarn') && !cmd.startsWith('pnpm') && !cmd.startsWith('node') && !cmd.startsWith('next') && !cmd.startsWith('vite') && !cmd.startsWith('react-scripts') && !cmd.startsWith('ng')) {
+            // attempt to find script name in package.json
+            try {
+                const pkgPath = path.join(absolute, 'package.json');
+                if (await fs.exists(pkgPath)) {
+                    const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8'));
+                    const scripts = pkg.scripts || {};
+                    const scriptName = Object.keys(scripts).find(k => scripts[k] === cmd || scripts[k].includes(cmd));
+                    if (scriptName) cmd = `npm run ${scriptName}`;
+                }
+            } catch (e) {
+                // ignore
+            }
+        }
+
+        // Start process through ProcessRunner
+        const procId = `forge-${Date.now()}`;
+        const result = processRunner.start(procId, cmd, absolute);
+
+        res.json({ success: true, id: result.id, pid: result.pid, command: result.command, status: result.status });
+    } catch (error) {
+        console.error('Error running executable:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --- Startup Logic ---
 const initializeVisorDir = async () => {
     try {
@@ -686,26 +976,41 @@ const initializeVisorDir = async () => {
     }
 };
 
-// Start server
-server.listen(PORT, async () => {
-    await initializeVisorDir();
+// Start server with port fallback
+const startServer = (port) => {
+    server.listen(port, async () => {
+        await initializeVisorDir();
 
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Analyzing project at ${ROOT_DIR}...`);
-    try {
-        await generateGraph(ROOT_DIR);
-        console.log('Initial graph analysis complete.');
-    } catch (e) {
-        console.error('Initial graph analysis failed:', e);
-    }
+        console.log(`\n✅ Server running on http://localhost:${port}`);
+        console.log(`📍 Analyzing project at ${ROOT_DIR}...`);
+        try {
+            await generateGraph(ROOT_DIR);
+            console.log('✅ Initial graph analysis complete.\n');
+        } catch (e) {
+            console.error('Initial graph analysis failed:', e);
+        }
 
-    // --- File Watcher for Chronicle Auto-Refresh ---
-    chokidar.watch(ROOT_DIR, {
-        ignored: [/(^|[\/\\])\../, '**/node_modules/**', '**/dist/**', '**/build/**'],
-        persistent: true,
-        ignoreInitial: true
-    }).on('all', (event, path) => {
-        // Emit event to all connected clients
-        io.emit('chronicle:update', { event, path });
+        // --- File Watcher for Chronicle Auto-Refresh ---
+        chokidar.watch(ROOT_DIR, {
+            ignored: [/(^|[\/\\])\../, '**/node_modules/**', '**/dist/**', '**/build/**'],
+            persistent: true,
+            ignoreInitial: true
+        }).on('all', (event, path) => {
+            // Emit event to all connected clients
+            io.emit('chronicle:update', { event, path });
+        });
     });
-});
+
+    server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+            console.warn(`⚠️  Port ${port} is already in use, trying port ${port + 1}...`);
+            startServer(port + 1);
+        } else {
+            console.error('Server error:', err);
+            process.exit(1);
+        }
+    });
+};
+
+startServer(PORT);
+

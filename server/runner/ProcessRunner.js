@@ -44,8 +44,6 @@ class ProcessRunner extends EventEmitter {
 
         console.log(`[ProcessRunner] Starting: ${command} in ${cwd}`);
 
-        // Simple parsing for spawn (windows compatibility)
-        // Usually shell: true handles command strings well
         const proc = spawn(command, {
             cwd,
             shell: true,
@@ -58,21 +56,54 @@ class ProcessRunner extends EventEmitter {
             command,
             startTime: Date.now(),
             status: 'running',
-            cwd
+            cwd,
+            url: null
         });
 
         // Set active process for error tracking
         this.activeProcessId = id;
+
+        // Helper: detect URLs in output
+        const urlRegex = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::(\d+))?(?:\/[\w\-\.?\/=]*)?)/i;
+        const portOnlyRegex = /(?:on port|listening on|http:\/\/localhost:|:\s*)(\d{3,5})/i;
 
         // Handle stdout
         proc.stdout.on('data', (data) => {
             // Send to tracer for analysis
             this.tracer.processOutput(data);
 
+            const str = data.toString();
+
+            // URL detection
+            try {
+                const match = str.match(urlRegex);
+                if (match) {
+                    const url = match[1];
+                    const procData = this.processes.get(id);
+                    if (procData && !procData.url) {
+                        procData.url = url;
+                        this.emit('url', { id, url });
+                    }
+                } else {
+                    const pmatch = str.match(portOnlyRegex);
+                    if (pmatch) {
+                        const port = pmatch[1];
+                        const url = `http://localhost:${port}`;
+                        const procData = this.processes.get(id);
+                        if (procData && !procData.url) {
+                            procData.url = url;
+                            this.emit('url', { id, url });
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore regex errors
+            }
+
             this.emit('output', {
                 id,
                 type: 'stdout',
-                data: data.toString()
+                data: str
             });
         });
 
@@ -81,10 +112,38 @@ class ProcessRunner extends EventEmitter {
             // Send to tracer for analysis
             this.tracer.processOutput(data);
 
+            const str = data.toString();
+
+            // URL detection (stderr sometimes prints the listening info)
+            try {
+                const match = str.match(urlRegex);
+                if (match) {
+                    const url = match[1];
+                    const procData = this.processes.get(id);
+                    if (procData && !procData.url) {
+                        procData.url = url;
+                        this.emit('url', { id, url });
+                    }
+                } else {
+                    const pmatch = str.match(portOnlyRegex);
+                    if (pmatch) {
+                        const port = pmatch[1];
+                        const url = `http://localhost:${port}`;
+                        const procData = this.processes.get(id);
+                        if (procData && !procData.url) {
+                            procData.url = url;
+                            this.emit('url', { id, url });
+                        }
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+
             this.emit('output', {
                 id,
                 type: 'stderr',
-                data: data.toString()
+                data: str
             });
         });
 
@@ -204,7 +263,8 @@ class ProcessRunner extends EventEmitter {
             status: procData.status,
             pid: procData.process?.pid,
             uptime: procData.status === 'running' ? Date.now() - procData.startTime : 0,
-            exitCode: procData.exitCode
+            exitCode: procData.exitCode,
+            url: procData.url || null
         };
     }
 

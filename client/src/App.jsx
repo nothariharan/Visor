@@ -3,6 +3,7 @@ import Header from './components/Header';
 import GraphCanvas from './components/GraphCanvas';
 import Sidebar from './components/Sidebar';
 import ProcessManager from './components/ProcessManager';
+import ForgePanel from './components/ForgePanel';
 import SearchBar from './components/SearchBar';
 import SearchModal from './components/SearchModal';
 import CodeEditor from './components/CodeEditor';
@@ -35,13 +36,11 @@ function getRelativeTime(timestamp) {
 function App() {
   const [currentMode, setCurrentMode] = useState('skeleton');
   const [showSidebar, setShowSidebar] = useState(true);
-  const [showProcessManager, setShowProcessManager] = useState(true);
   const [showLegend, setShowLegend] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const { handleExecutionError, clearErrors, isSearchModalOpen, setIsSearchModalOpen, lastSaveTime, isSavingLayout } = useStore();
 
-  // Right panel is driven by mode — no manual toggle needed for chronicle
-  const showRightPanel = currentMode === 'forge' || currentMode === 'chronicle';
+  // ...existing code...
 
   // Refresh the "saved X ago" text every second
   useEffect(() => {
@@ -68,10 +67,6 @@ function App() {
     return () => socket.close();
   }, [handleExecutionError, clearErrors]);
 
-  // Sync Process Manager visibility with mode (forge only)
-  useEffect(() => {
-    setShowProcessManager(currentMode === 'forge');
-  }, [currentMode]);
 
   // Setup Cmd+P keyboard shortcut
   useSearchShortcut(() => {
@@ -104,7 +99,7 @@ function App() {
         )}
 
         {/* Graph Canvas (Center) */}
-        <div className="flex-1 relative bg-mantle">
+        <div className="flex-1 relative bg-mantle h-full w-full">
           <ReactFlowProvider>
             <GraphCanvas mode={currentMode} />
           </ReactFlowProvider>
@@ -112,14 +107,14 @@ function App() {
           <LegendPanel isOpen={showLegend} onClose={() => setShowLegend(false)} />
         </div>
 
-        {/* Right Panel: Chronicle Timeline or ProcessManager */}
+        {/* Right Panel: Chronicle Timeline or ExecutablesPanel (Forge) */}
         {currentMode === 'chronicle' && (
           <div className="w-96 bg-crust border-l-2 border-mauve/40 flex flex-col overflow-hidden">
             <ChroniclePanel />
           </div>
         )}
-        {currentMode === 'forge' && showProcessManager && (
-          <ProcessManager />
+        {currentMode === 'forge' && (
+          <ForgePanel />
         )}
       </div>
 
@@ -141,10 +136,6 @@ function App() {
             className={`hover:text-text flex items-center gap-1 ${showLegend ? 'text-blue' : ''}`}
           >
             <span>[?]</span> Index
-          </button>
-
-          <button onClick={() => setShowProcessManager(!showProcessManager)} className="hover:text-text">
-            [{showProcessManager ? 'x' : ' '}] Process Mgr
           </button>
 
           {/* Auto-save Status */}
