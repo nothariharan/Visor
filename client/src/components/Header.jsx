@@ -1,5 +1,5 @@
 import React from 'react';
-import { Network, Share2, Zap, ArrowRight, Save, RotateCcw, Clock, Play } from 'lucide-react';
+import { Network, Share2, Zap, ArrowRight, Save, RotateCcw, Clock } from 'lucide-react';
 import useStore from '../store';
 
 export default function Header({ currentMode, onModeChange }) {
@@ -18,8 +18,26 @@ export default function Header({ currentMode, onModeChange }) {
         }
     };
 
-    const handleRun = () => {
-        window.open('/?mode=forge', '_blank');
+    const formatPath = (path) => {
+        if (!path || path === 'Visor') return 'Visor';
+
+        let normalized = path.replace(/\\/g, '/');
+        const rootMatch = normalized.match(/(?:^|\/)visor\/(.+)$/i);
+
+        if (rootMatch) {
+            normalized = rootMatch[1];
+        } else if (normalized.toLowerCase() === 'visor' || normalized.toLowerCase().endsWith('/visor')) {
+            return 'Visor';
+        }
+
+        const parts = normalized.split('/').filter(Boolean);
+        if (parts.length > 2) {
+            return `Visor / ... / ${parts[parts.length - 2]} / ${parts[parts.length - 1]}`;
+        } else if (parts.length > 0) {
+            return `Visor / ${parts.join(' / ')}`;
+        }
+
+        return 'Visor';
     };
 
     return (
@@ -31,7 +49,7 @@ export default function Header({ currentMode, onModeChange }) {
                     <span className="text-blue font-bold shrink-0">~/visor</span>
                     <span className="text-subtext0 shrink-0">/</span>
                     <span className="text-text truncate" title={selectedPath}>
-                        Visor{selectedPath && selectedPath !== 'Visor' ? ` / ${selectedPath}` : ''}
+                        {formatPath(selectedPath)}
                     </span>
                 </div>
             </div>
@@ -58,16 +76,6 @@ export default function Header({ currentMode, onModeChange }) {
                         {mode.label}
                     </button>
                 ))}
-                {currentMode === 'forge' && (
-                    <button
-                        onClick={handleRun}
-                        className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 bg-green text-crust border-green shadow-hard-green"
-                        title="Run in Forge Mode"
-                    >
-                        <Play size={14} />
-                        Run
-                    </button>
-                )}
             </div>
 
             {/* Right Section: Controls & Status */}
