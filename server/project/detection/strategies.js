@@ -398,6 +398,27 @@ class SubdirectoryStrategy extends DetectionStrategy {
             return await this.detectNodeProject(dirName, category);
         }
 
+        // Fallback: Check if it's a Node project without package.json (e.g. server/index.js)
+        if (category === 'backend' || category === 'api') {
+            const candidates = ['index.js', 'server.js', 'app.js', 'main.js', 'api.js'];
+            for (const file of candidates) {
+                if (await this.fileExists(path.join(dirName, file))) {
+                    return {
+                        id: `subdir-${dirName}`,
+                        name: dirName.charAt(0).toUpperCase() + dirName.slice(1),
+                        command: `node ${file}`,
+                        workingDir: path.join(this.projectRoot, dirName),
+                        type: 'subdirectory',
+                        framework: 'node',
+                        icon: ICONS[category] || ICONS.custom,
+                        category,
+                        port: DEFAULT_PORTS['express'], // 3000
+                        description: `${category} - Node.js`
+                    };
+                }
+            }
+        }
+
         // Check for Python project
         for (const file of PATTERNS.files.python) {
             if (await this.fileExists(path.join(dirName, file))) {

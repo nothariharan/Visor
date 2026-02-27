@@ -44,7 +44,7 @@ echo.
 
 REM Step 2: Start the server
 echo [2/3] Starting VISOR server...
-echo     Server: http://localhost:3000
+echo     Server: http://localhost:6767
 echo.
 
 REM Wait a moment
@@ -52,7 +52,7 @@ timeout /t 1 /nobreak >nul
 
 REM Step 3: Open browser
 echo [3/3] Opening browser...
-start http://localhost:3000
+start http://localhost:6767
 
 REM Wait for browser to start
 timeout /t 2 /nobreak >nul
@@ -60,7 +60,7 @@ timeout /t 2 /nobreak >nul
 echo.
 echo =====================================
 echo [OK] VISOR is running!
-echo     Open: http://localhost:3000
+echo     Open: http://localhost:6767
 echo     Stop: Press Ctrl+C in terminal
 echo =====================================
 echo.

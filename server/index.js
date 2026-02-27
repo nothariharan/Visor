@@ -27,7 +27,7 @@ const { MultiRuntimeDetector } = require('./project/detection/MultiRuntimeDetect
 const { ProcessRunner } = require('./runner/ProcessRunner');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 6767;
 const ROOT_DIR = process.cwd(); // Run on current directory
 const VISOR_DIR = path.join(ROOT_DIR, '.visor'); // Define .visor directory path
 
@@ -774,14 +774,6 @@ app.post('/api/search/recent', async (req, res) => {
     }
 });
 
-// SPA Catch-all
-app.get(/.*/, (req, res) => {
-    if (!req.path.startsWith('/api') && fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
-        res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-    } else if (!req.path.startsWith('/api')) {
-        res.status(404).send('Visor client build not found. Run "npm run build" in client directory.');
-    }
-});
 
 // ------------------ Forge Endpoints ------------------
 
@@ -791,6 +783,10 @@ app.get('/api/forge/executable-folders', async (req, res) => {
     try {
         const detector = new MultiRuntimeDetector(ROOT_DIR);
         const runtimes = await detector.detectAll();
+
+        if (!runtimes) {
+            return res.json({ folders: [] });
+        }
 
         // Map runtimes to folder cards; allow multiple runtimes per folder
         const grouped = {};
@@ -809,7 +805,7 @@ app.get('/api/forge/executable-folders', async (req, res) => {
                     }
                 };
             }
-            grouped[folderPath].executables.push({ name: r.name, command: r.command, id: r.id, framework: r.framework });
+            grouped[folderPath].executables.push({ name: r.name, command: r.command, id: r.id, framework: r.framework, port: r.port });
         }
 
         // Populate metadata (fileCount, lastModified) for each folder (async)
@@ -867,7 +863,7 @@ app.post('/api/forge/inspect', async (req, res) => {
             metadata.fileCount = 0;
         }
 
-        res.json({ path: absolute, metadata, executables: runtimes.map(r => ({ name: r.name, command: r.command, id: r.id, framework: r.framework })) });
+        res.json({ path: absolute, metadata, executables: runtimes.map(r => ({ name: r.name, command: r.command, id: r.id, framework: r.framework, port: r.port })) });
     } catch (error) {
         console.error('Error inspecting folder:', error);
         res.status(500).json({ error: error.message });
@@ -925,13 +921,28 @@ app.post('/api/forge/run', async (req, res) => {
         }
 
         // Start process through ProcessRunner
-        const procId = `forge-${Date.now()}`;
+        // Use the absolute path as the ID so the frontend can track output by folder path
+        const procId = absolute;
         const result = processRunner.start(procId, cmd, absolute);
 
         res.json({ success: true, id: result.id, pid: result.pid, command: result.command, status: result.status });
     } catch (error) {
         console.error('Error running executable:', error);
         res.status(500).json({ error: error.message });
+    }
+});
+
+// SPA Catch-all
+app.get(/.*/, (req, res) => {
+    // If it's an unmatched API request, return 404 immediately
+    if (req.path.startsWith('/api')) {
+        return res.status(404).json({ error: 'API route not found' });
+    }
+
+    if (fs.existsSync(path.join(__dirname, '../client/dist/index.html'))) {
+        res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+    } else {
+        res.status(404).send('Visor client build not found. Run "npm run build" in client directory.');
     }
 });
 

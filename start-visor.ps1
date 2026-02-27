@@ -37,7 +37,7 @@ try {
 
     # Step 2: Start the server
     Write-Host "🔥 Starting VISOR server..." -ForegroundColor Yellow
-    Write-Host "   Server will run on http://localhost:3000" -ForegroundColor Cyan
+    Write-Host "   Server will run on http://localhost:6767" -ForegroundColor Cyan
     Write-Host ""
 
     # Wait a moment for user to read the message
@@ -53,8 +53,8 @@ try {
     Start-Sleep -Seconds 2
 
     # Open the browser
-    Write-Host "🌐 Opening http://localhost:3000..." -ForegroundColor Green
-    Start-Process "http://localhost:3000"
+    Write-Host "🌐 Opening http://localhost:6767..." -ForegroundColor Green
+    Start-Process "http://localhost:6767"
 
     Write-Host ""
     Write-Host "✅ VISOR is ready!" -ForegroundColor Green
