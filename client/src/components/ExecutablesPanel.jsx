@@ -12,7 +12,7 @@ export default function ExecutablesPanel() {
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
     const outputRef = useRef(null);
-    const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+    const socketUrl = import.meta.env.DEV ? 'http://localhost:6767' : '/';
 
     // Fetch executables
     useEffect(() => {

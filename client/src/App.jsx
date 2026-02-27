@@ -52,7 +52,7 @@ function App() {
 
   useEffect(() => {
     // Global Socket for App-wide Events (Error Visualization)
-    const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+    const socketUrl = import.meta.env.DEV ? 'http://localhost:6767' : '/';
     const socket = io(socketUrl);
 
     socket.on('execution:error', (data) => {

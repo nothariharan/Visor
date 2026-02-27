@@ -22,7 +22,7 @@ import EmptyState from './EmptyState';
 import CustomEdge from './CustomEdge';
 
 // Initialize socket connection outside component to avoid multiple connections
-const socketUrl = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+const socketUrl = import.meta.env.DEV ? 'http://localhost:6767' : '/';
 const socket = io(socketUrl);
 
 

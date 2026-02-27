@@ -21,7 +21,7 @@ export default function SearchBar() {
             const command = localQuery.trim().toLowerCase();
 
             if (command === 'visor .') {
-                window.open('http://localhost:3000', '_blank');
+                window.open('http://localhost:6767', '_blank');
                 setLocalQuery('');
             }
         }
