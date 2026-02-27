@@ -261,3 +261,35 @@ body {
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* === Execution Flow States === */
+@keyframes node-entry-glow {
+  0% { box-shadow: 0 0 5px #89b4fa; border-color: #89b4fa; }
+  50% { box-shadow: 0 0 20px #89b4fa, inset 0 0 10px rgba(137, 180, 250, 0.5); border-color: #b4befe; }
+  100% { box-shadow: 0 0 5px #89b4fa; border-color: #89b4fa; }
+}
+
+@keyframes node-error-shake {
+  0%, 100% { transform: translateX(0); box-shadow: 0 0 10px #f38ba8; border-color: #f38ba8; }
+  25% { transform: translateX(-4px); box-shadow: 0 0 25px rgba(243, 139, 168, 0.6); border-color: #f38ba8; }
+  75% { transform: translateX(4px); box-shadow: 0 0 25px rgba(243, 139, 168, 0.6); border-color: #f38ba8; }
+}
+
+@keyframes node-executing-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.4); border-color: #a6e3a1; }
+  70% { box-shadow: 0 0 0 10px rgba(166, 227, 161, 0); border-color: #a6e3a1; }
+  100% { box-shadow: 0 0 0 0 rgba(166, 227, 161, 0); border-color: #a6e3a1; }
+}
+
+.node-execution-entry {
+  animation: node-entry-glow 2s ease-in-out infinite;
+  z-index: 100;
+}
+.node-execution-error {
+  animation: node-error-shake 0.5s ease-in-out infinite;
+  z-index: 100;
+}
+.node-execution-executing {
+  animation: node-executing-pulse 1.5s infinite;
+  z-index: 90;
+}

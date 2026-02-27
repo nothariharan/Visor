@@ -102,6 +102,35 @@ export default function ForgePanel() {
         fetchFolders();
     }, []);
 
+    // AI Auto-Restart Listener
+    useEffect(() => {
+        if (!socket) return;
+
+        const onAIFix = (data) => {
+            const { filePath, message } = data;
+            const normalize = p => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+            const normFile = normalize(filePath);
+
+            // Find matching folder
+            const matchingFolder = folders.find(f => normFile.includes(normalize(f.path)));
+            if (matchingFolder) {
+                setOutputs(prev => ({
+                    ...prev,
+                    [matchingFolder.path]: [
+                        ...(prev[matchingFolder.path] || []),
+                        { type: 'system', text: `✨ AI Auto-Fix Applied: ${message}`, timestamp: Date.now() },
+                        { type: 'system', text: `>>> Auto-restarting process...`, timestamp: Date.now() }
+                    ]
+                }));
+                // Trigger natural restart using the existing flow
+                handleRun(matchingFolder.path);
+            }
+        };
+
+        socket.on('ai:fix-applied', onAIFix);
+        return () => socket.off('ai:fix-applied', onAIFix);
+    }, [socket, folders]);
+
     // Scroll to bottom of terminal output
     useEffect(() => {
         if (outputRef.current) {

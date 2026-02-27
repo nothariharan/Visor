@@ -15,14 +15,15 @@ const CustomNode = ({ id, data, isConnectable }) => {
     const isFocused = focusedNode === id;
     const [executionState, setExecutionState] = useState(null);
 
-    const { activeErrors } = useStore();
+    const { activeErrors, executionStates, isFixing } = useStore();
 
     // Derive execution state from global store
     useEffect(() => {
         const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
         const normalizedId = normalize(id);
-        const error = activeErrors[normalizedId];
 
+        // Priority 1: Primary Errors
+        const error = activeErrors[normalizedId];
         if (error) {
             setExecutionState({
                 type: 'error',
@@ -30,20 +31,18 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 line: error.line,
                 primary: true
             });
-        } else {
-            // Check if we are just in the path? 
-            // The store handles edge highlighting, but for nodes...
-            // activeErrors only stores PRIMARY errors.
-            // If we want 'error-path' state on nodes, we need to know if we are in the path.
-            // However, the previous logic relied on executionPath.
-            // Let's stick to highlighting the PRIMARY file for now as that's what the user wants.
-            // If we want path nodes to glow, we can check edges?
-            // Actually, let's keep it simple. The user said "main.jsx isn't glowing". That's the primary file.
-            if (executionState?.type === 'error') {
-                setExecutionState(null);
-            }
+            return;
         }
-    }, [activeErrors, id]);
+
+        // Priority 2: Real-time execution states
+        const rtState = executionStates[normalizedId];
+        if (rtState) {
+            setExecutionState(rtState);
+            return;
+        }
+
+        setExecutionState(null);
+    }, [activeErrors, executionStates, id]);
 
     // Trace/Warning can stay if they come from other sources, 
     // but for now let's assume we removed socket so we can't listen to them here.
@@ -75,7 +74,7 @@ const CustomNode = ({ id, data, isConnectable }) => {
         switch (executionState.type) {
             case 'error':
                 borderColor = '!border-red-500';
-                glow = '!shadow-[0_0_30px_rgba(239,68,68,0.6)] animate-pulse';
+                glow = 'node-execution-error';
                 executionClass = 'bg-gradient-to-br from-red-900/80 to-slate-900';
                 break;
             case 'error-path':
@@ -87,8 +86,14 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 glow = '!shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-pulse';
                 break;
             case 'executing':
+            case 'component':
                 borderColor = '!border-emerald-500';
-                glow = '!shadow-[0_0_20px_rgba(16,185,129,0.5)] animate-pulse';
+                glow = 'node-execution-executing';
+                break;
+            case 'entry':
+            case 'start':
+                borderColor = '!border-blue-400';
+                glow = 'node-execution-entry';
                 break;
         }
     }
@@ -177,17 +182,32 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 </div>
             )}
 
-            {/* Jump to Error Button */}
+            {/* Error Actions */}
             {executionState?.type === 'error' && (
-                <button
-                    className="w-full mt-2 py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold rounded transition-colors"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        window.location.href = `vscode://file/${data.path || id}:${executionState.line}`;
-                    }}
-                >
-                    Jump to Error →
-                </button>
+                <div className="flex flex-col gap-1 mt-2">
+                    <button
+                        className="w-full py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold rounded transition-colors"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            window.location.href = `vscode://file/${data.path || id}:${executionState.line}`;
+                        }}
+                    >
+                        Jump to Error →
+                    </button>
+                    <button
+                        disabled={isFixing}
+                        className={`w-full py-1 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1 ${isFixing ? 'opacity-50 cursor-not-allowed' : 'shadow-[0_0_10px_rgba(99,102,241,0.5)]'}`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            const { handleAIFix } = useStore.getState();
+                            if (handleAIFix) {
+                                handleAIFix(data.path || id, executionState.originalError);
+                            }
+                        }}
+                    >
+                        ✨ {isFixing ? 'Fixing...' : 'AI Auto-Fix'}
+                    </button>
+                </div>
             )}
 
             <Handle type="source" position={Position.Right} isConnectable={isConnectable} className="!bg-slate-500" />

@@ -7,65 +7,228 @@ class ExecutionTracer extends EventEmitter {
         super();
         this.projectRoot = projectRoot || process.cwd();
         this.fileStates = new Map();
+        this.activeTraces = new Map();
         this.errors = [];
     }
 
     /**
      * Process Output from Terminal (stdout/stderr)
      */
-    processOutput(data) {
+    processOutput(processId, data, stream = 'stdout') {
         // Strip ANSI codes for easier regex matching
         const output = data.toString().replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+        const lines = output.split('\n').filter(Boolean);
 
-        // 1. Vite Error Format
-        // [vite] Internal server error: ...
-        // Plugin: vite:import-analysis
-        // File: /path/to/file.jsx:10:15
-        if (output.includes('[vite]') && output.includes('Error:')) {
-            this.handleViteError(output);
-            return;
+        for (const line of lines) {
+            // 1. Errors
+            if (this.isError(line)) {
+                this.handleError(processId, line, output, stream);
+                continue;
+            }
+
+            // 2. Imports
+            if (this.isImportTrace(line)) {
+                this.handleImport(processId, line);
+                continue;
+            }
+
+            // 3. Component Rendering
+            if (this.isComponentTrace(line)) {
+                this.handleComponent(processId, line);
+                continue;
+            }
+
+            // 4. Warnings
+            if (this.isWarning(line)) {
+                this.handleWarning(processId, line);
+                continue;
+            }
+
+            // 5. Server Start
+            if (this.isServerStart(line)) {
+                this.handleServerStart(processId, line);
+                continue;
+            }
+
+            // File Execution Tracking (Fallback/Basic)
+            const executionMatch = line.match(/(?:running|executing)\s+([^\s]+\.(?:js|jsx|ts|tsx))/i);
+            if (executionMatch) {
+                const fileName = executionMatch[1];
+                const absolutePath = path.resolve(this.projectRoot, fileName);
+                this.fileStates.set(absolutePath, 'running');
+                this.emit('file:executed', {
+                    processId,
+                    file: absolutePath,
+                    startDate: Date.now(),
+                    status: 'running'
+                });
+            }
         }
+    }
 
-        // 2. Standard Node.js Error / Stack Trace
-        // Error: message
-        //     at Function (file:line:col)
-        if (output.includes('Error:') && output.includes('    at ')) {
-            this.handleNodeError(output);
-            return;
-        }
+    isError(line) {
+        const errorPatterns = [
+            /error:/i,
+            /exception/i,
+            /failed/i,
+            /cannot find module/i,
+            /undefined/i,
+            /ReferenceError/,
+            /TypeError/,
+            /SyntaxError/
+        ];
+        return errorPatterns.some(pattern => pattern.test(line));
+    }
 
-        // 3. Basic "error:" string detection (Fallback)
-        if (output.toLowerCase().includes('error:')) {
-            const errorData = {
-                message: output.trim(),
-                timestamp: Date.now(),
-                type: 'TerminalError'
-            };
-            this.emitError(errorData);
-        }
+    isImportTrace(line) {
+        return (line.includes('modules transformed') || line.includes('→') || line.includes('importing'));
+    }
 
-        // Warning detection
-        if (output.toLowerCase().includes('warning:')) {
-            this.emit('warning:detected', {
-                message: output.trim(),
+    isComponentTrace(line) {
+        return line.match(/\.(jsx|tsx)/) !== null && !this.isError(line) && !this.isWarning(line);
+    }
+
+    isWarning(line) {
+        return line.toLowerCase().includes('warning');
+    }
+
+    isServerStart(line) {
+        const startPatterns = [
+            /server.*running/i,
+            /listening on/i,
+            /ready on/i,
+            /local:.*http/i
+        ];
+        return startPatterns.some(pattern => pattern.test(line));
+    }
+
+    handleError(processId, errorLine, fullOutput, stream) {
+        let parsed = this.parseError(fullOutput, stream);
+
+        if (!parsed.file) {
+            // Try to use the old methods if new parser fails
+            if (fullOutput.includes('[vite]') && fullOutput.includes('Error:')) {
+                this.handleViteError(processId, fullOutput);
+                return;
+            }
+            if (fullOutput.includes('Error:') && fullOutput.includes('    at ')) {
+                this.handleNodeError(processId, fullOutput);
+                return;
+            }
+
+            // Basic error
+            parsed = { message: errorLine.trim(), type: 'TerminalError', stack: fullOutput, file: null };
+            this.emit('execution:error', {
+                processId,
+                error: parsed,
+                primaryFile: null,
                 timestamp: Date.now()
             });
+            return;
         }
 
-        // File Execution Tracking (unchanged)
-        const executionMatch = output.match(/(?:running|executing)\s+([^\s]+\.(?:js|jsx|ts|tsx))/i);
-        if (executionMatch) {
-            const fileName = executionMatch[1];
-            // Try to resolve relative to root
-            const absolutePath = path.resolve(this.projectRoot, fileName);
+        const trace = this.activeTraces.get(processId) || { errors: [] };
+        trace.errors.push(parsed);
+        this.activeTraces.set(processId, trace);
 
-            this.fileStates.set(absolutePath, 'running');
-            this.emit('file:executed', {
-                file: absolutePath,
-                startDate: Date.now(),
-                status: 'running'
-            });
+        this.emit('execution:error', {
+            processId,
+            error: parsed,
+            primaryFile: parsed.file,
+            timestamp: Date.now()
+        });
+    }
+
+    parseError(errorOutput, stream) {
+        let match = errorOutput.match(/at\s+(?:.+?\s+\()?(?:([^:]+?):(\d+):(\d+))\)?/);
+        if (match) {
+            return {
+                file: this.normalizePathForGraph(match[1]),
+                line: parseInt(match[2]),
+                column: parseInt(match[3]),
+                message: this.extractErrorMessage(errorOutput),
+                type: this.detectErrorType(errorOutput),
+                stack: errorOutput
+            };
         }
+
+        match = errorOutput.match(/File:\s+(.+?):(\d+):(\d+)/) || errorOutput.match(/([^:\s"']+):(\d+):(\d+)/);
+        // Exclude generic vite URLs like http://localhost
+        if (match && !match[1].startsWith('http')) {
+            return {
+                file: this.normalizePathForGraph(match[1]),
+                line: parseInt(match[2]),
+                column: parseInt(match[3]),
+                message: this.extractErrorMessage(errorOutput),
+                type: 'ViteError',
+                stack: errorOutput
+            };
+        }
+
+        match = errorOutput.match(/File\s+"([^"]+)",\s+line\s+(\d+)/);
+        if (match) {
+            return {
+                file: this.normalizePathForGraph(match[1]),
+                line: parseInt(match[2]),
+                column: 0,
+                message: this.extractErrorMessage(errorOutput),
+                type: 'PythonError',
+                stack: errorOutput
+            };
+        }
+
+        return { message: errorOutput, file: null };
+    }
+
+    extractErrorMessage(errorOutput) {
+        const lines = errorOutput.split('\n');
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('at ')) {
+                return trimmed;
+            }
+        }
+        return errorOutput.substring(0, 200).trim();
+    }
+
+    detectErrorType(errorOutput) {
+        if (errorOutput.includes('ReferenceError')) return 'ReferenceError';
+        if (errorOutput.includes('TypeError')) return 'TypeError';
+        if (errorOutput.includes('SyntaxError')) return 'SyntaxError';
+        if (errorOutput.includes('Cannot find module')) return 'ModuleNotFoundError';
+        return 'RuntimeError';
+    }
+
+    handleImport(processId, line) {
+        const fileMatch = line.match(/→\s+(.+)/);
+        if (fileMatch) {
+            const file = this.normalizePathForGraph(fileMatch[1]);
+            this.emit('execution:import', { processId, file, timestamp: Date.now() });
+        }
+    }
+
+    handleComponent(processId, line) {
+        const fileMatch = line.match(/([^\s"']+\.(jsx|tsx))/);
+        if (fileMatch) {
+            const file = this.normalizePathForGraph(fileMatch[1]);
+            this.emit('execution:component', { processId, file, timestamp: Date.now() });
+        }
+    }
+
+    handleWarning(processId, line) {
+        const fileMatch = line.match(/([^\s"']+\.(js|jsx|ts|tsx)):(\d+)/);
+        if (fileMatch) {
+            const file = this.normalizePathForGraph(fileMatch[1]);
+            this.emit('execution:warning', { processId, file, line: parseInt(fileMatch[3]), message: line, timestamp: Date.now() });
+        } else {
+            this.emit('warning:detected', { processId, message: line.trim(), timestamp: Date.now() });
+        }
+    }
+
+    handleServerStart(processId, line) {
+        const portMatch = line.match(/:(\d+)/);
+        const port = portMatch ? parseInt(portMatch[1]) : null;
+        this.emit('execution:start', { processId, port, message: line, timestamp: Date.now() });
     }
 
     /**

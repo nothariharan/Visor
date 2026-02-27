@@ -339,6 +339,10 @@ processRunner.on('execution:error', (data) => io.emit('execution:error', data));
 processRunner.on('execution:warning', (data) => io.emit('execution:warning', data));
 processRunner.on('execution:trace', (data) => io.emit('execution:trace', data));
 processRunner.on('url', (data) => io.emit('process:url', data));
+processRunner.on('execution:entry', (data) => io.emit('execution:entry', data));
+processRunner.on('execution:import', (data) => io.emit('execution:import', data));
+processRunner.on('execution:component', (data) => io.emit('execution:component', data));
+processRunner.on('execution:start', (data) => io.emit('execution:start', data));
 
 // --- Browser Error Handling ---
 app.get('/error-reporter.js', (req, res) => {
@@ -366,6 +370,18 @@ app.post('/api/browser-error', (req, res) => {
     const { message, filename, line, column, stack, type } = req.body;
     processRunner.handleBrowserError({ message, filename, line, column, stack, type });
     res.json({ received: true });
+});
+
+// --- AI Auto Fix Service ---
+const { AIFixService } = require('./ai/fix-service');
+const fixService = new AIFixService('AIzaSyAzgEW0kHC6D1cAlVwUxiIgDLTLkoUN5PA');
+
+app.post('/api/ai/fix-error', async (req, res) => {
+    const { filePath, error } = req.body;
+    if (!filePath || !error) return res.status(400).json({ success: false, error: 'Missing filePath or error' });
+    const result = await fixService.fixError(filePath, error);
+    if (result.success) io.emit('ai:fix-applied', { filePath, message: result.message });
+    res.json(result);
 });
 
 // API: Detect project

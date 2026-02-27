@@ -17,6 +17,7 @@ const useStore = create((set, get) => ({
     isSaving: false,
     activeRunDir: null,
     activeErrors: {},
+    executionStates: {}, // Real-time visual states
     selectedPath: 'Visor',
     searchQuery: '',
     lastSaveTime: null,
@@ -135,9 +136,10 @@ const useStore = create((set, get) => ({
         if (normalizedPrimary) {
             newErrors[normalizedPrimary] = {
                 message: error.message,
-                line: error.stack?.[0]?.line,
+                line: error.stack?.[0]?.line || error.line,
                 timestamp: Date.now(),
-                type: 'error'
+                type: 'error',
+                originalError: error
             };
         }
 
@@ -170,8 +172,63 @@ const useStore = create((set, get) => ({
     },
 
     clearErrors: () => {
-        set({ activeErrors: {} });
+        set({ activeErrors: {}, executionStates: {} });
         get().clearExecutionPath();
+    },
+
+    setExecutionState: (nodeId, stateObj) => {
+        const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+        const normId = normalize(nodeId);
+        if (!normId) return;
+
+        // Find actual graph id to handle relative paths loosely matching
+        const findGraphNodeId = (searchPath) => {
+            const nodes = get().nodes;
+            const match = nodes.find(n => normalize(n.id).endsWith(searchPath) || searchPath.endsWith(normalize(n.id)));
+            return match ? match.id : null;
+        };
+
+        const targetId = findGraphNodeId(normId) || normId;
+        const finalTargetId = normalize(targetId);
+
+        set(store => ({
+            executionStates: {
+                ...store.executionStates,
+                [finalTargetId]: stateObj
+            }
+        }));
+    },
+
+    clearExecutionState: (nodeId) => {
+        const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+        const normId = normalize(nodeId);
+        set(store => {
+            const newStates = { ...store.executionStates };
+            delete newStates[normId];
+            return { executionStates: newStates };
+        });
+    },
+
+    // --- AI Auto Fix ---
+    isFixing: false,
+    handleAIFix: async (filePath, errorObj) => {
+        set({ isFixing: true });
+        console.log('[Store] Requesting AI Auto-Fix for:', filePath);
+        try {
+            const res = await axios.post('/api/ai/fix-error', { filePath, error: errorObj });
+            if (res.data.success) {
+                console.log('✨ AI fixed code successfully:', res.data.message);
+                // Note: File reloading will happen via socket 'ai:fix-applied'
+            } else {
+                console.error('❌ AI fix failed:', res.data.error);
+                alert(`AI Fix Failed: ${res.data.error}`);
+            }
+        } catch (err) {
+            console.error('✨ AI request error:', err);
+            alert('Failed to connect to AI Fix Service.');
+        } finally {
+            set({ isFixing: false });
+        }
     },
 
     organizeGraph: (mode) => {

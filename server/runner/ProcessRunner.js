@@ -13,17 +13,15 @@ class ProcessRunner extends EventEmitter {
         this.tracer = new ExecutionTracer(this.projectRoot);
 
         // Forward tracer events
-        this.tracer.on('execution:error', (data) => {
-            this.emit('execution:error', { ...data, processId: this.activeProcessId });
-        });
-
-        this.tracer.on('warning:detected', (data) => {
-            this.emit('execution:warning', data);
-        });
-
-        this.tracer.on('file:executed', (data) => {
-            this.emit('execution:trace', data);
-        });
+        this.tracer.on('execution:error', (data) => this.emit('execution:error', data));
+        this.tracer.on('execution:warning', (data) => this.emit('execution:warning', data));
+        this.tracer.on('warning:detected', (data) => this.emit('execution:warning', data));
+        this.tracer.on('execution:trace', (data) => this.emit('execution:trace', data));
+        this.tracer.on('execution:import', (data) => this.emit('execution:import', data));
+        this.tracer.on('execution:component', (data) => this.emit('execution:component', data));
+        this.tracer.on('execution:start', (data) => this.emit('execution:start', data));
+        this.tracer.on('execution:entry', (data) => this.emit('execution:entry', data));
+        this.tracer.on('file:executed', (data) => this.emit('execution:trace', data));
     }
 
     handleBrowserError(errorData) {
@@ -63,6 +61,9 @@ class ProcessRunner extends EventEmitter {
         // Set active process for error tracking
         this.activeProcessId = id;
 
+        // Detect entry point
+        this.detectEntryPoint(id, command, cwd);
+
         // Helper: detect URLs in output
         const urlRegex = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::(\d+))?(?:\/[\w\-\.?\/=]*)?)/i;
         const portOnlyRegex = /(?:on port|listening on|http:\/\/localhost:|:\s*)(\d{3,5})/i;
@@ -70,7 +71,7 @@ class ProcessRunner extends EventEmitter {
         // Handle stdout
         proc.stdout.on('data', (data) => {
             // Send to tracer for analysis
-            this.tracer.processOutput(data);
+            this.tracer.processOutput(id, data, 'stdout');
 
             const str = data.toString();
 
@@ -110,7 +111,7 @@ class ProcessRunner extends EventEmitter {
         // Handle stderr
         proc.stderr.on('data', (data) => {
             // Send to tracer for analysis
-            this.tracer.processOutput(data);
+            this.tracer.processOutput(id, data, 'stderr');
 
             const str = data.toString();
 
@@ -185,6 +186,70 @@ class ProcessRunner extends EventEmitter {
             command,
             status: 'running'
         };
+    }
+
+    detectEntryPoint(processId, command, workingDir) {
+        if (!workingDir) return;
+
+        let entryFile = null;
+
+        if (command.includes('node ')) {
+            const match = command.match(/node\s+([^\s]+)/);
+            entryFile = match ? match[1] : null;
+        } else if (command.includes('npm run') || command.includes('npm start')) {
+            const fs = require('fs');
+            const path = require('path');
+            try {
+                const pkgPath = path.join(workingDir, 'package.json');
+                if (fs.existsSync(pkgPath)) {
+                    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+                    const scriptName = command.replace('npm run ', '').replace('npm start', 'start').trim();
+                    const scriptCommand = pkg?.scripts?.[scriptName];
+                    if (scriptCommand) {
+                        entryFile = this.parseScriptCommand(scriptCommand, workingDir);
+                    }
+                }
+            } catch (e) {
+                // Ignore
+            }
+        } else if (command.includes('python')) {
+            const match = command.match(/python\s+([^\s]+)/);
+            entryFile = match ? match[1] : null;
+        }
+
+        if (entryFile) {
+            const path = require('path');
+            const absolutePath = path.resolve(workingDir, entryFile);
+
+            // Emit entry point detected
+            this.emit('execution:entry', {
+                processId,
+                file: absolutePath,
+                timestamp: Date.now()
+            });
+        }
+    }
+
+    parseScriptCommand(scriptCommand, workingDir) {
+        if (scriptCommand.includes('node ')) {
+            const match = scriptCommand.match(/node\s+([^\s]+)/);
+            return match ? match[1] : null;
+        }
+        if (scriptCommand.includes('nodemon ')) {
+            const match = scriptCommand.match(/nodemon\s+([^\s]+)/);
+            return match ? match[1] : null;
+        }
+
+        const fs = require('fs');
+        const path = require('path');
+        const commonEntries = ['src/main.js', 'src/main.tsx', 'src/index.js', 'src/index.tsx', 'index.js', 'server.js', 'main.js'];
+
+        for (const entry of commonEntries) {
+            if (fs.existsSync(path.join(workingDir, entry))) {
+                return entry;
+            }
+        }
+        return null;
     }
 
     /**

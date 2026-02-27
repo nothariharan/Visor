@@ -45,7 +45,8 @@ const defaultEdgeOptions = {
 // Inner component that uses the hook
 const GraphContent = () => {
     const { nodes, edges, fetchGraph, onNodesChange, onEdgesChange, highlightDependencies, loading,
-        organizeGraph, organizeMode, organizeStats, onConnect, highlightExecutionPath } = useStore();
+        organizeGraph, organizeMode, organizeStats, onConnect, highlightExecutionPath,
+        setExecutionState, clearExecutionState } = useStore();
     const { fitView } = useReactFlow();
 
     useEffect(() => {
@@ -74,19 +75,43 @@ const GraphContent = () => {
         }
     }, [nodes.length, loading, fitView]);
 
-    // Subscribe to events (Trace only, Error is handled by Store globally)
+    // Subscribe to fine-grained execution trace events from ProcessRunner
     useEffect(() => {
-        const handleTrace = (data) => {
-            // Trace logic can remain here or move to store later
-            // For now, let's just leave it as is, or remove if unused
+        const handleEntry = (data) => {
+            if (data?.file) {
+                setExecutionState(data.file, { type: 'entry', timestamp: data.timestamp });
+                setTimeout(() => clearExecutionState(data.file), 3500);
+            }
+        };
+        const handleComponent = (data) => {
+            if (data?.file) {
+                setExecutionState(data.file, { type: 'component', timestamp: data.timestamp });
+                setTimeout(() => clearExecutionState(data.file), 2500);
+            }
+        };
+        const handleImport = (data) => {
+            if (data?.file) {
+                setExecutionState(data.file, { type: 'executing', timestamp: data.timestamp });
+                setTimeout(() => clearExecutionState(data.file), 1500);
+            }
+        };
+        const handleStart = () => {
+            // Clear errors and execution states when server restarts
+            useStore.getState().clearErrors();
         };
 
-        socket.on('execution:trace', handleTrace);
+        socket.on('execution:entry', handleEntry);
+        socket.on('execution:component', handleComponent);
+        socket.on('execution:import', handleImport);
+        socket.on('execution:start', handleStart);
 
         return () => {
-            socket.off('execution:trace', handleTrace);
+            socket.off('execution:entry', handleEntry);
+            socket.off('execution:component', handleComponent);
+            socket.off('execution:import', handleImport);
+            socket.off('execution:start', handleStart);
         };
-    }, []);
+    }, [setExecutionState, clearExecutionState]);
 
 
     const onNodeMouseEnter = useCallback((event, node) => {
