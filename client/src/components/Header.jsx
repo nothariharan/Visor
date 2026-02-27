@@ -58,15 +58,16 @@ export default function Header({ currentMode, onModeChange }) {
                         {mode.label}
                     </button>
                 ))}
-                 <button
-                    onClick={handleRun}
-                    disabled={currentMode !== 'forge'}
-                    className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 bg-green text-crust border-green shadow-hard-green disabled:bg-surface0 disabled:text-subtext0 disabled:border-surface1 disabled:shadow-none"
-                    title="Run in Forge Mode"
-                >
-                    <Play size={14} />
-                    Run
-                </button>
+                {currentMode === 'forge' && (
+                    <button
+                        onClick={handleRun}
+                        className="px-3 py-1.5 text-xs font-bold uppercase tracking-wider border transition-all flex items-center gap-2 bg-green text-crust border-green shadow-hard-green"
+                        title="Run in Forge Mode"
+                    >
+                        <Play size={14} />
+                        Run
+                    </button>
+                )}
             </div>
 
             {/* Right Section: Controls & Status */}

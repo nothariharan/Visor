@@ -3,7 +3,7 @@ import Header from './components/Header';
 import GraphCanvas from './components/GraphCanvas';
 import Sidebar from './components/Sidebar';
 import ProcessManager from './components/ProcessManager';
-import ExecutablesPanel from './components/ExecutablesPanel';
+import ForgePanel from './components/ForgePanel';
 import SearchBar from './components/SearchBar';
 import SearchModal from './components/SearchModal';
 import CodeEditor from './components/CodeEditor';
@@ -99,7 +99,7 @@ function App() {
         )}
 
         {/* Graph Canvas (Center) */}
-        <div className="flex-1 relative bg-mantle">
+        <div className="flex-1 relative bg-mantle h-full w-full">
           <ReactFlowProvider>
             <GraphCanvas mode={currentMode} />
           </ReactFlowProvider>
@@ -114,7 +114,7 @@ function App() {
           </div>
         )}
         {currentMode === 'forge' && (
-          <ExecutablesPanel />
+          <ForgePanel />
         )}
       </div>
 
