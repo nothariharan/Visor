@@ -9,141 +9,199 @@ class ExecutionTracer extends EventEmitter {
         this.fileStates = new Map();
         this.activeTraces = new Map();
         this.errors = [];
+        // Per-process working directory map (set when process starts)
+        this.processCwds = new Map();
+    }
+
+    /** Register the working directory for a process */
+    registerProcessCwd(processId, cwd) {
+        this.processCwds.set(processId, cwd);
+        console.log(`[Tracer] Registered CWD for ${processId}: ${cwd}`);
+    }
+
+    /** Get the working directory for a process, fallback to projectRoot */
+    getCwd(processId) {
+        return this.processCwds.get(processId) || this.projectRoot;
     }
 
     /**
      * Process Output from Terminal (stdout/stderr)
      */
     processOutput(processId, data, stream = 'stdout') {
-        // Strip ANSI codes for easier regex matching
+        // Strip ANSI codes for regex matching
         const output = data.toString().replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-        const lines = output.split('\n').filter(Boolean);
+        const lines = output.split('\n').filter(l => l.trim());
+        const cwd = this.getCwd(processId);
 
         for (const line of lines) {
-            // 1. Errors
-            if (this.isError(line)) {
-                this.handleError(processId, line, output, stream);
+            // --- Vite-specific patterns first (before generic error check) ---
+
+            // Vite HMR update: "[vite] hmr update /src/App.jsx"
+            const viteHmr = line.match(/\[vite\]\s+(?:hmr\s+update|page\s+reload)\s+(\/\S+)/i);
+            if (viteHmr) {
+                const file = this.resolveRelativePath(viteHmr[1], cwd);
+                if (file) {
+                    console.log(`[Tracer] Vite HMR: ${file}`);
+                    this.emit('execution:component', { processId, file, timestamp: Date.now() });
+                }
                 continue;
             }
 
-            // 2. Imports
-            if (this.isImportTrace(line)) {
-                this.handleImport(processId, line);
+            // Vite transform: "✓ 123 modules transformed." or file list
+            if (line.includes('modules transformed') || line.match(/\d+\s+module/)) {
+                this.emit('execution:import', { processId, file: null, message: line.trim(), timestamp: Date.now() });
                 continue;
             }
 
-            // 3. Component Rendering
-            if (this.isComponentTrace(line)) {
-                this.handleComponent(processId, line);
+            // Vite build/transform: shows "src/App.jsx" or similar
+            const viteFile = line.match(/(?:transform|compile|build|load)\s+(\S+\.(?:jsx?|tsx?|vue|svelte))/i);
+            if (viteFile) {
+                const file = this.resolveRelativePath(viteFile[1], cwd);
+                if (file) {
+                    console.log(`[Tracer] Vite file transform: ${file}`);
+                    this.emit('execution:component', { processId, file, timestamp: Date.now() });
+                }
                 continue;
             }
 
-            // 4. Warnings
-            if (this.isWarning(line)) {
-                this.handleWarning(processId, line);
+            // Vite/Node error patterns (strict - only real errors)
+            if (this.isRealError(line)) {
+                this.handleError(processId, line, output, stream, cwd);
                 continue;
             }
 
-            // 5. Server Start
+            // Vite internal server error block
+            if (line.includes('[vite]') && line.toLowerCase().includes('error')) {
+                this.handleViteError(processId, output, cwd);
+                continue;
+            }
+
+            // Generic import arrow trace
+            const importArrow = line.match(/→\s+(\S+\.(?:jsx?|tsx?))/);
+            if (importArrow) {
+                const file = this.resolveRelativePath(importArrow[1], cwd);
+                if (file) this.emit('execution:import', { processId, file, timestamp: Date.now() });
+                continue;
+            }
+
+            // Node.js "at ..." stack trace pointing to a file
+            const atTrace = line.match(/^\s+at\s+.+\((.+\.(jsx?|tsx?)):(\d+):(\d+)\)/);
+            if (atTrace && !atTrace[1].includes('node_modules')) {
+                const file = this.resolveRelativePath(atTrace[1], cwd);
+                if (file) {
+                    this.emit('execution:trace', { processId, file, line: parseInt(atTrace[3]), timestamp: Date.now() });
+                }
+                continue;
+            }
+
+            // Server start
             if (this.isServerStart(line)) {
                 this.handleServerStart(processId, line);
                 continue;
             }
 
-            // File Execution Tracking (Fallback/Basic)
-            const executionMatch = line.match(/(?:running|executing)\s+([^\s]+\.(?:js|jsx|ts|tsx))/i);
-            if (executionMatch) {
-                const fileName = executionMatch[1];
-                const absolutePath = path.resolve(this.projectRoot, fileName);
-                this.fileStates.set(absolutePath, 'running');
-                this.emit('file:executed', {
-                    processId,
-                    file: absolutePath,
-                    startDate: Date.now(),
-                    status: 'running'
-                });
+            // Warnings
+            if (this.isWarning(line)) {
+                this.handleWarning(processId, line, cwd);
+                continue;
             }
         }
     }
 
-    isError(line) {
-        const errorPatterns = [
-            /error:/i,
-            /exception/i,
-            /failed/i,
-            /cannot find module/i,
-            /undefined/i,
-            /ReferenceError/,
-            /TypeError/,
-            /SyntaxError/
-        ];
-        return errorPatterns.some(pattern => pattern.test(line));
+    /**
+     * Resolve a path (relative or absolute) to an absolute path using the process CWD
+     */
+    resolveRelativePath(filePath, cwd) {
+        if (!filePath) return null;
+        try {
+            // Remove leading slash for path.join (Vite uses /src/App.jsx)
+            const cleanPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
+            const abs = path.isAbsolute(filePath) ? filePath : path.join(cwd, cleanPath);
+
+            // Filter out node_modules and Vite internals
+            if (abs.includes('node_modules')) return null;
+            if (abs.includes('vite/dist')) return null;
+
+            // Check existence — only return if file actually exists
+            if (fs.existsSync(abs)) return abs;
+
+            // Try without the leading segment (e.g. "src/App.jsx" without "src/")
+            return null;
+        } catch (e) {
+            return null;
+        }
     }
 
-    isImportTrace(line) {
-        return (line.includes('modules transformed') || line.includes('→') || line.includes('importing'));
-    }
-
-    isComponentTrace(line) {
-        return line.match(/\.(jsx|tsx)/) !== null && !this.isError(line) && !this.isWarning(line);
+    /**
+     * Strict error detection - only actual error types, not vague matches
+     */
+    isRealError(line) {
+        // Must contain an actual error type keyword (not just "failed" or "undefined")
+        return (
+            /\bReferenceError\b/.test(line) ||
+            /\bTypeError\b/.test(line) ||
+            /\bSyntaxError\b/.test(line) ||
+            /\bRangeError\b/.test(line) ||
+            /\bEvalError\b/.test(line) ||
+            /\bURIError\b/.test(line) ||
+            /Cannot find module/.test(line) ||
+            /Error: /.test(line) ||
+            /\[error\]/i.test(line) ||
+            /✗\s+error/i.test(line)
+        );
     }
 
     isWarning(line) {
-        return line.toLowerCase().includes('warning');
+        return /\bwarning\b/i.test(line) && !this.isRealError(line);
     }
 
     isServerStart(line) {
-        const startPatterns = [
-            /server.*running/i,
-            /listening on/i,
-            /ready on/i,
-            /local:.*http/i
-        ];
-        return startPatterns.some(pattern => pattern.test(line));
+        return /server.*running|listening on|ready\s+in|local:\s*http/i.test(line);
     }
 
-    handleError(processId, errorLine, fullOutput, stream) {
-        let parsed = this.parseError(fullOutput, stream);
+    handleError(processId, errorLine, fullOutput, stream, cwd) {
+        const resolved = this.parseError(fullOutput, cwd || this.getCwd(processId));
 
-        if (!parsed.file) {
-            // Try to use the old methods if new parser fails
+        if (!resolved.file) {
+            // Vite-specific block error
             if (fullOutput.includes('[vite]') && fullOutput.includes('Error:')) {
-                this.handleViteError(processId, fullOutput);
+                this.handleViteError(processId, fullOutput, cwd);
                 return;
             }
+            // Node.js stack-based error
             if (fullOutput.includes('Error:') && fullOutput.includes('    at ')) {
-                this.handleNodeError(processId, fullOutput);
+                this.handleNodeError(processId, fullOutput, cwd);
                 return;
             }
-
-            // Basic error
-            parsed = { message: errorLine.trim(), type: 'TerminalError', stack: fullOutput, file: null };
+            // Emit with no file (still useful for the error toast)
             this.emit('execution:error', {
                 processId,
-                error: parsed,
+                error: { message: errorLine.trim(), type: 'TerminalError', stack: [] },
                 primaryFile: null,
+                executionPath: [],
                 timestamp: Date.now()
             });
             return;
         }
 
-        const trace = this.activeTraces.get(processId) || { errors: [] };
-        trace.errors.push(parsed);
-        this.activeTraces.set(processId, trace);
-
         this.emit('execution:error', {
             processId,
-            error: parsed,
-            primaryFile: parsed.file,
+            error: resolved,
+            primaryFile: resolved.file,
+            executionPath: [{ file: resolved.file, line: resolved.line, column: resolved.column }],
             timestamp: Date.now()
         });
     }
 
-    parseError(errorOutput, stream) {
-        let match = errorOutput.match(/at\s+(?:.+?\s+\()?(?:([^:]+?):(\d+):(\d+))\)?/);
-        if (match) {
+    parseError(errorOutput, cwd) {
+        const workDir = cwd || this.projectRoot;
+
+        // Node.js stack: "at Function (/path/to/file.js:10:5)"
+        let match = errorOutput.match(/at\s+(?:.+?\s+\()?([^\s(]+\.(?:js|ts|jsx|tsx)):(\d+):(\d+)\)?/);
+        if (match && !match[1].includes('node_modules') && !match[1].startsWith('node:')) {
+            const file = path.isAbsolute(match[1]) ? match[1] : path.resolve(workDir, match[1]);
             return {
-                file: this.normalizePathForGraph(match[1]),
+                file: file.includes('node_modules') ? null : file,
                 line: parseInt(match[2]),
                 column: parseInt(match[3]),
                 message: this.extractErrorMessage(errorOutput),
@@ -152,11 +210,12 @@ class ExecutionTracer extends EventEmitter {
             };
         }
 
-        match = errorOutput.match(/File:\s+(.+?):(\d+):(\d+)/) || errorOutput.match(/([^:\s"']+):(\d+):(\d+)/);
-        // Exclude generic vite URLs like http://localhost
-        if (match && !match[1].startsWith('http')) {
+        // Vite build error: "src/App.jsx:10:5"
+        match = errorOutput.match(/\b(src\/[^\s:]+\.(?:jsx?|tsx?)):(\d+):(\d+)/);
+        if (match) {
+            const file = path.join(workDir, match[1]);
             return {
-                file: this.normalizePathForGraph(match[1]),
+                file,
                 line: parseInt(match[2]),
                 column: parseInt(match[3]),
                 message: this.extractErrorMessage(errorOutput),
@@ -165,14 +224,15 @@ class ExecutionTracer extends EventEmitter {
             };
         }
 
-        match = errorOutput.match(/File\s+"([^"]+)",\s+line\s+(\d+)/);
-        if (match) {
+        // Absolute path with line/col
+        match = errorOutput.match(/([A-Za-z]:[\\/][^\s:]+\.(?:js|ts|jsx|tsx)):(\d+):(\d+)/);
+        if (match && !match[1].includes('node_modules')) {
             return {
-                file: this.normalizePathForGraph(match[1]),
+                file: match[1],
                 line: parseInt(match[2]),
-                column: 0,
+                column: parseInt(match[3]),
                 message: this.extractErrorMessage(errorOutput),
-                type: 'PythonError',
+                type: this.detectErrorType(errorOutput),
                 stack: errorOutput
             };
         }
@@ -184,8 +244,8 @@ class ExecutionTracer extends EventEmitter {
         const lines = errorOutput.split('\n');
         for (const line of lines) {
             const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('at ')) {
-                return trimmed;
+            if (trimmed && !trimmed.startsWith('at ') && !trimmed.startsWith('-->') && !/^\d+\s*\|/.test(trimmed)) {
+                return trimmed.substring(0, 300);
             }
         }
         return errorOutput.substring(0, 200).trim();
@@ -199,83 +259,108 @@ class ExecutionTracer extends EventEmitter {
         return 'RuntimeError';
     }
 
-    handleImport(processId, line) {
-        const fileMatch = line.match(/→\s+(.+)/);
+    handleViteError(processId, text, cwd) {
+        const workDir = cwd || this.getCwd(processId);
+        // Vite format: "Plugin vite:esbuild:\n  /path:line:col"
+        const fileMatch = text.match(/(?:Plugin\s+[^:]+:\n\s+|x\s+Build failed.*\n\s+)([^\n:]+\.(?:jsx?|tsx?)):(\d+):(\d+)/m) ||
+            text.match(/([^\s]+\.(?:jsx?|tsx?)):(\d+):(\d+)/);
+
+        let files = [];
         if (fileMatch) {
-            const file = this.normalizePathForGraph(fileMatch[1]);
-            this.emit('execution:import', { processId, file, timestamp: Date.now() });
+            const rawPath = fileMatch[1].trim();
+            const abs = path.isAbsolute(rawPath) ? rawPath : path.join(workDir, rawPath);
+            if (!abs.includes('node_modules')) {
+                files.push({ file: abs, line: parseInt(fileMatch[2]), column: parseInt(fileMatch[3]) });
+            }
         }
+
+        const messageMatch = text.match(/(?:Internal server error:|Plugin.*?error:|Error:)\s+(.+)/i);
+        const message = messageMatch ? messageMatch[1] : 'Vite Build Error';
+
+        this.emit('execution:error', {
+            processId,
+            error: { message: message.trim(), type: 'ViteError', stack: files },
+            primaryFile: files.length > 0 ? files[0].file : null,
+            executionPath: files,
+            timestamp: Date.now()
+        });
     }
 
-    handleComponent(processId, line) {
-        const fileMatch = line.match(/([^\s"']+\.(jsx|tsx))/);
-        if (fileMatch) {
-            const file = this.normalizePathForGraph(fileMatch[1]);
-            this.emit('execution:component', { processId, file, timestamp: Date.now() });
-        }
+    handleNodeError(processId, text, cwd) {
+        const workDir = cwd || this.getCwd(processId);
+        const stackLines = text.split('\n')
+            .filter(l => l.trim().startsWith('at ') && !l.includes('node_modules') && !l.includes('node:'));
+
+        const files = stackLines.map(l => {
+            const m = l.match(/at\s+.+?\(([^)]+\.(?:js|ts|jsx|tsx)):(\d+):(\d+)\)/);
+            if (!m) return null;
+            const abs = path.isAbsolute(m[1]) ? m[1] : path.resolve(workDir, m[1]);
+            return abs.includes('node_modules') ? null : { file: abs, line: parseInt(m[2]), column: parseInt(m[3]) };
+        }).filter(Boolean);
+
+        const messageMatch = text.match(/^([A-Z][a-zA-Z]*Error:.+)/m);
+        const message = messageMatch ? messageMatch[1] : 'Runtime Error';
+
+        this.emit('execution:error', {
+            processId,
+            error: { message, type: this.detectErrorType(text), stack: files },
+            primaryFile: files.length > 0 ? files[0].file : null,
+            executionPath: files,
+            timestamp: Date.now()
+        });
     }
 
-    handleWarning(processId, line) {
-        const fileMatch = line.match(/([^\s"']+\.(js|jsx|ts|tsx)):(\d+)/);
+    handleWarning(processId, line, cwd) {
+        const workDir = cwd || this.getCwd(processId);
+        const fileMatch = line.match(/([^\s"']+\.(?:js|jsx|ts|tsx)):(\d+)/);
         if (fileMatch) {
-            const file = this.normalizePathForGraph(fileMatch[1]);
-            this.emit('execution:warning', { processId, file, line: parseInt(fileMatch[3]), message: line, timestamp: Date.now() });
+            const abs = path.isAbsolute(fileMatch[1]) ? fileMatch[1] : path.resolve(workDir, fileMatch[1]);
+            this.emit('execution:warning', { processId, file: abs, line: parseInt(fileMatch[2]), message: line.trim(), timestamp: Date.now() });
         } else {
             this.emit('warning:detected', { processId, message: line.trim(), timestamp: Date.now() });
         }
     }
 
     handleServerStart(processId, line) {
-        const portMatch = line.match(/:(\d+)/);
+        const portMatch = line.match(/:(\d{3,5})/);
         const port = portMatch ? parseInt(portMatch[1]) : null;
-        this.emit('execution:start', { processId, port, message: line, timestamp: Date.now() });
+        this.emit('execution:start', { processId, port, message: line.trim(), timestamp: Date.now() });
     }
 
     /**
      * Process Error from Browser (via API)
      */
     processBrowserError(data) {
-        // data: { message, filename, line, column, stack, type, workingDir }
+        console.log('\n--- [Tracer] RECEIVED BROWSER ERROR ---');
+        console.log('Message:', data.message);
+        console.log('Filename:', data.filename);
+        console.log('WorkingDir:', data.workingDir);
 
-        // Use the provided workingDir or fall back to project root
         const baseDir = data.workingDir || this.projectRoot;
-
         const files = [];
 
-        // If we have a direct filename/line
         if (data.filename) {
             const normalized = this.normalizePathForGraph(data.filename, baseDir);
+            console.log('Normalized Direct Filename:', normalized);
             if (normalized) {
-                files.push({
-                    file: normalized,
-                    line: data.line,
-                    column: data.column
-                });
+                files.push({ file: normalized, line: data.line, column: data.column });
             }
         }
 
-        // Parse stack trace for more frames
         if (data.stack) {
             const stackFiles = this.parseBrowserStack(data.stack, baseDir);
             files.push(...stackFiles);
         }
 
-        // Dedup files
+        // Dedup
         const uniqueFiles = [];
         const seen = new Set();
         files.forEach(f => {
-            if (!seen.has(f.file)) {
-                seen.add(f.file);
-                uniqueFiles.push(f);
-            }
+            if (!seen.has(f.file)) { seen.add(f.file); uniqueFiles.push(f); }
         });
 
         const errorEvent = {
-            error: {
-                message: data.message,
-                type: data.type || 'BrowserError',
-                stack: uniqueFiles
-            },
+            error: { message: data.message, type: data.type || 'BrowserError', stack: uniqueFiles },
             primaryFile: uniqueFiles.length > 0 ? uniqueFiles[0].file : null,
             executionPath: uniqueFiles
         };
@@ -287,191 +372,67 @@ class ExecutionTracer extends EventEmitter {
         this.emit('execution:error', errorEvent);
     }
 
-    /**
-     * Handle Vite Terminal Errors
-     */
-    handleViteError(text) {
-        // Try to find "File: /path/to/file:line:col"
-        const fileMatch = text.match(/File:\s+(.+?):(\d+):(\d+)/);
-
-        let files = [];
-        if (fileMatch) {
-            const filePath = this.normalizePathForGraph(fileMatch[1]);
-            if (filePath) {
-                files.push({
-                    file: filePath,
-                    line: parseInt(fileMatch[2]),
-                    column: parseInt(fileMatch[3])
-                });
-            }
-        }
-
-        // Extract message
-        // Usually line after "Internal server error:"
-        const messageMatch = text.match(/server error:\s+(.+)/i) || text.match(/Error:\s+(.+)/);
-        const message = messageMatch ? messageMatch[1] : 'Build/Runtime Error';
-
-        this.emit('execution:error', {
-            error: {
-                message: message.trim(),
-                type: 'ViteError',
-                stack: files
-            },
-            primaryFile: files.length > 0 ? files[0].file : null,
-            executionPath: files
-        });
-    }
-
-    /**
-     * Handle Node.js Terminal Stack Traces
-     */
-    handleNodeError(text) {
-        const lines = text.split('\n');
-        const message = lines[0]; // First line is usually the error message
-
-        const stackFrames = [];
-
-        // regex for "at Function (file:line:col)" or "at file:line:col"
-        // Note: Terminal output might confuse paths, so we look for absolute paths or relative to root
-
-        const regex = /at\s+(?:.+?\s+\()?(?:(.+?):(\d+):(\d+))\)?/;
-
-        for (const line of lines) {
-            const match = line.match(regex);
-            if (match) {
-                const rawPath = match[1];
-                const normalized = this.normalizePathForGraph(rawPath);
-
-                if (normalized) {
-                    stackFrames.push({
-                        file: normalized,
-                        line: parseInt(match[2]),
-                        column: parseInt(match[3])
-                    });
-                }
-            }
-        }
-
-        if (stackFrames.length > 0) {
-            this.emit('execution:error', {
-                error: {
-                    message: message,
-                    type: 'NodeError',
-                    stack: stackFrames
-                },
-                primaryFile: stackFrames[0].file,
-                executionPath: stackFrames
-            });
-        } else {
-            // Fallback if no frames parsed
-            this.emitError({ message, type: 'NodeError' });
-        }
-    }
-
-    /**
-     * Parse Browser Stack Trace
-     * Format: "at FunctionName (http://localhost:5173/src/App.jsx:10:5)"
-     */
     parseBrowserStack(stack, baseDir) {
         if (!stack) return [];
-
         const lines = stack.split('\n');
         const files = [];
-
         for (const line of lines) {
             const match = line.match(/at\s+.+?\s+\((https?:\/\/.+?):(\d+):(\d+)\)/) ||
                 line.match(/at\s+(https?:\/\/.+?):(\d+):(\d+)/);
-
             if (match) {
-                const url = match[1];
-                const normalized = this.normalizePathForGraph(url, baseDir);
+                const normalized = this.normalizePathForGraph(match[1], baseDir);
                 if (normalized) {
-                    files.push({
-                        file: normalized,
-                        line: parseInt(match[2]),
-                        column: parseInt(match[3])
-                    });
+                    files.push({ file: normalized, line: parseInt(match[2]), column: parseInt(match[3]) });
                 }
             }
         }
         return files;
     }
 
-    /**
-     * Normalize paths to match Graph Node IDs (Absolute Windows/POSIX paths)
-     */
     normalizePathForGraph(filePath, baseDir) {
         const rootDir = baseDir || this.projectRoot;
-
         if (!filePath) return null;
 
-        // 1. Handle HTTP URLs (Browser)
+        // Handle HTTP URLs (from browser error-reporter)
         if (filePath.startsWith('http')) {
-            // http://localhost:PORT/src/App.jsx
-            // Remove origin
             try {
                 const urlObj = new URL(filePath);
                 let pathname = urlObj.pathname;
 
-                // Vite specific: /@fs/C:/Users/...
+                // Vite /@fs/ absolute path
                 if (pathname.startsWith('/@fs/')) {
                     pathname = pathname.replace('/@fs/', '');
-                    // On windows, it might start with /C:/..., so remove leading slash if needed
                     if (process.platform === 'win32' && /^\/[a-zA-Z]:/.test(pathname)) {
                         pathname = pathname.substring(1);
                     }
-                }
-                // Vite specific: /src/App.jsx -> Join with root
-                else {
-                    // If it starts with slash, join with the runtime's working directory
+                } else {
+                    // Relative to runtime working dir
                     pathname = path.join(rootDir, pathname);
                 }
-
-                // Decode URI components (spaces etc)
                 filePath = decodeURIComponent(pathname);
-
             } catch (e) {
                 return null;
             }
         }
 
-        // 2. Handle Absolute Paths
         let absolutePath = filePath;
         if (!path.isAbsolute(filePath)) {
             absolutePath = path.resolve(rootDir, filePath);
         }
 
-        // 3. Filters
-        // Ignore node_modules, internal scripts
         if (absolutePath.includes('node_modules')) return null;
         if (absolutePath.includes('vite/dist')) return null;
-        if (absolutePath.includes('chrome-extension://')) return null;
-
-        // 4. Verification
-        // Optional: Check if file exists? 
-        // Might be expensive to do check on every log line, but good for accuracy.
-        // For now, assume if it resolves to project root, it's valid.
 
         return absolutePath;
     }
 
     emitError(data) {
         this.errors.push(data);
-        this.emit('execution:error', {
-            error: data,
-            primaryFile: null,
-            executionPath: []
-        });
+        this.emit('execution:error', { error: data, primaryFile: null, executionPath: [] });
     }
 
-    getFileStates() {
-        return Object.fromEntries(this.fileStates);
-    }
-
-    clearAllErrors() {
-        this.errors = [];
-        this.emit('errors:cleared');
-    }
+    getFileStates() { return Object.fromEntries(this.fileStates); }
+    clearAllErrors() { this.errors = []; this.emit('errors:cleared'); }
 }
 
 module.exports = { ExecutionTracer };

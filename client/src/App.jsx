@@ -38,7 +38,7 @@ function App() {
   const [showSidebar, setShowSidebar] = useState(true);
   const [showLegend, setShowLegend] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const { handleExecutionError, clearErrors, isSearchModalOpen, setIsSearchModalOpen, lastSaveTime, isSavingLayout } = useStore();
+  const { handleExecutionError, clearErrors, highlightExecutionPath, isSearchModalOpen, setIsSearchModalOpen, lastSaveTime, isSavingLayout } = useStore();
 
   // ...existing code...
 
@@ -51,21 +51,61 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // Global Socket for App-wide Events (Error Visualization)
+    // Global Socket for App-wide Events (Error + Execution Visualization)
     const socketUrl = import.meta.env.DEV ? 'http://localhost:6767' : '/';
     const socket = io(socketUrl);
 
+    socket.on('connect', () => {
+      console.log('[App] Socket connected:', socket.id);
+    });
+
+    socket.on('disconnect', () => {
+      console.warn('[App] Socket DISCONNECTED');
+    });
+
+    // ─── Error Visualization ─────────────────────────────────────────────
     socket.on('execution:error', (data) => {
-      console.log('[App] Global execution error received:', data);
+      console.log('[App] execution:error received:', {
+        primaryFile: data.primaryFile,
+        msg: data.error?.message,
+        frames: data.executionPath?.length
+      });
       handleExecutionError(data);
     });
 
     socket.on('errors:cleared', () => {
+      console.log('[App] errors:cleared received');
       clearErrors();
     });
 
+    // ─── Workflow Trace Visualization ────────────────────────────────────
+    socket.on('execution:entry', (data) => {
+      console.log('[App] execution:entry:', data.file);
+      if (data.file) highlightExecutionPath([data.file], 'entry');
+    });
+
+    socket.on('execution:trace', (data) => {
+      console.log('[App] execution:trace:', data.file || data.id);
+      const file = data.file || data.id;
+      if (file) highlightExecutionPath([file], 'running');
+    });
+
+    socket.on('execution:import', (data) => {
+      console.log('[App] execution:import:', data.file);
+      if (data.file) highlightExecutionPath([data.file], 'running');
+    });
+
+    socket.on('execution:component', (data) => {
+      console.log('[App] execution:component:', data.file);
+      if (data.file) highlightExecutionPath([data.file], 'running');
+    });
+
+    socket.on('execution:warning', (data) => {
+      console.log('[App] execution:warning:', data.file || data.message);
+    });
+
     return () => socket.close();
-  }, [handleExecutionError, clearErrors]);
+  }, [handleExecutionError, clearErrors, highlightExecutionPath]);
 
 
   // Setup Cmd+P keyboard shortcut

@@ -127,16 +127,30 @@ const useStore = create((set, get) => ({
     setIsSearchModalOpen: (isOpen) => set({ isSearchModalOpen: isOpen }),
 
     handleExecutionError: (errorData) => {
-        const { executionPath, primaryFile, error } = errorData;
+        const { executionPath = [], primaryFile, error } = errorData;
         const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
 
-        const normalizedPrimary = normalize(primaryFile);
+        const targetPrimaryId = normalize(primaryFile);
+
+        // Find actual graph id to handle relative paths loosely matching
+        const findGraphNodeIdForPrimary = (searchPath) => {
+            if (!searchPath) return null;
+            const nodes = get().nodes;
+            const match = nodes.find(n => normalize(n.id).endsWith(searchPath) || searchPath.endsWith(normalize(n.id)));
+            return match ? match.id : null;
+        };
+
         const newErrors = { ...get().activeErrors };
+
+        if (!error) return set({ activeErrors: newErrors });
+
+        const finalPrimaryId = targetPrimaryId ? (findGraphNodeIdForPrimary(targetPrimaryId) || targetPrimaryId) : null;
+        const normalizedPrimary = normalize(finalPrimaryId);
 
         if (normalizedPrimary) {
             newErrors[normalizedPrimary] = {
-                message: error.message,
-                line: error.stack?.[0]?.line || error.line,
+                message: error.message || 'Unknown Error',
+                line: error.stack?.[0]?.line || error.line || 0,
                 timestamp: Date.now(),
                 type: 'error',
                 originalError: error
@@ -147,27 +161,33 @@ const useStore = create((set, get) => ({
         const nodes = get().nodes;
 
         const findGraphNodeId = (searchPath) => {
+            if (!searchPath) return null;
             const searchNorm = normalize(searchPath);
-            const match = nodes.find(n => normalize(n.id) === searchNorm);
+            const match = nodes.find(n => normalize(n.id).endsWith(searchNorm) || searchNorm.endsWith(normalize(n.id)));
             return match ? match.id : null;
         };
 
-        executionPath.forEach(frame => {
-            const fileNodeId = findGraphNodeId(frame.file);
-            if (fileNodeId) {
-                implicatedNodeIds.add(fileNodeId);
-                const parts = normalize(fileNodeId).split('/');
-                parts.pop();
-                while (parts.length > 0) {
-                    const folderPath = parts.join('/');
-                    const folderNodeId = findGraphNodeId(folderPath);
-                    if (folderNodeId) implicatedNodeIds.add(folderNodeId);
+        if (Array.isArray(executionPath)) {
+            executionPath.forEach(frame => {
+                if (!frame || !frame.file) return;
+                const fileNodeId = findGraphNodeId(frame.file);
+                if (fileNodeId) {
+                    implicatedNodeIds.add(fileNodeId);
+                    const parts = normalize(fileNodeId).split('/');
                     parts.pop();
+                    while (parts.length > 0) {
+                        const folderPath = parts.join('/');
+                        const folderNodeId = findGraphNodeId(folderPath);
+                        if (folderNodeId) implicatedNodeIds.add(folderNodeId);
+                        parts.pop();
+                    }
                 }
-            }
-        });
+            });
+        }
 
-        get().highlightExecutionPath(Array.from(implicatedNodeIds), 'error');
+        if (implicatedNodeIds.size > 0) {
+            get().highlightExecutionPath(Array.from(implicatedNodeIds), 'error');
+        }
         set({ activeErrors: newErrors });
     },
 
@@ -498,7 +518,61 @@ const useStore = create((set, get) => ({
     },
 
     highlightExecutionPath: (nodeIds, type) => {
-        // ... (rest of the function is unchanged)
+        console.log('[Store] highlightExecutionPath called with', nodeIds.length, 'nodes, type:', type);
+        if (!nodeIds || nodeIds.length === 0) {
+            console.warn('[Store] highlightExecutionPath: no nodeIds provided');
+            return;
+        }
+
+        const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+        const highlightSet = new Set(nodeIds.map(normalize));
+
+        // Update nodes: set executionState on matching nodes
+        const nodes = get().nodes;
+        const updated = nodes.map(node => {
+            const nId = normalize(node.id);
+            if (highlightSet.has(nId)) {
+                console.log('[Store]   Highlighting node:', node.id, '->', type);
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        executionState: type, // 'error' | 'running' | 'entry'
+                    }
+                };
+            }
+            return node;
+        });
+
+        // Update edges: animate those connecting highlighted nodes
+        const edges = get().edges;
+        const updatedEdges = edges.map(edge => {
+            const srcNorm = normalize(edge.source);
+            const tgtNorm = normalize(edge.target);
+            if (highlightSet.has(srcNorm) && highlightSet.has(tgtNorm)) {
+                return {
+                    ...edge,
+                    animated: true,
+                    style: {
+                        ...edge.style,
+                        stroke: type === 'error' ? '#ef4444' : type === 'entry' ? '#22c55e' : '#3b82f6',
+                        strokeWidth: 2.5,
+                        opacity: 1,
+                    },
+                    data: { ...edge.data, executionType: type }
+                };
+            }
+            return edge;
+        });
+
+        set({ nodes: updated, edges: updatedEdges });
+
+        // Also update executionStates map for CustomNode to read
+        const stateMap = {};
+        nodeIds.forEach(id => {
+            stateMap[normalize(id)] = { type, timestamp: Date.now() };
+        });
+        set(store => ({ executionStates: { ...store.executionStates, ...stateMap } }));
     },
 
     clearExecutionPath: () => {

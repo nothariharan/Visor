@@ -38,3 +38,5 @@ yarn-error.log*
 # Visor project data
 .visor/
 .agent/
+
+.env

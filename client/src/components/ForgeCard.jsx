@@ -1,9 +1,37 @@
-import React from 'react';
-import { Play, Square, Loader2, Folder, FileText, ExternalLink } from 'lucide-react';
+import React, { useState } from 'react';
+import { Play, Square, Loader2, Folder, FileText, ExternalLink, Shield, ShieldCheck, ShieldAlert } from 'lucide-react';
 
-const ForgeCard = ({ folder, status, isActive, onClick, onRun, onStop }) => {
+const ForgeCard = ({ folder, status, isActive, onClick, onRun, onStop, url }) => {
     // Status can be: 'stopped', 'starting', 'running', 'stopping', 'error'
     const isRunning = status === 'starting' || status === 'running';
+
+    const [patching, setPatching] = useState(false);
+    const [patchState, setPatchState] = useState('unknown'); // 'unknown' | 'patched' | 'error'
+
+    const handlePatch = async (e) => {
+        e.stopPropagation();
+        setPatching(true);
+        try {
+            const res = await fetch('/api/project/patch-html', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: folder.path })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setPatchState('patched');
+                // Restart so injected script loads
+                onStop();
+                setTimeout(() => onRun(), 800);
+            } else {
+                setPatchState('error');
+            }
+        } catch (err) {
+            setPatchState('error');
+        } finally {
+            setPatching(false);
+        }
+    };
 
     const renderMetadata = () => {
         const { metadata, executables } = folder;
@@ -55,6 +83,30 @@ const ForgeCard = ({ folder, status, isActive, onClick, onRun, onStop }) => {
 
             {renderMetadata()}
 
+            {/* Error tracking status — shown when running */}
+            {isRunning && (
+                <div
+                    onClick={patchState !== 'patched' ? handlePatch : undefined}
+                    className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] font-medium transition-colors cursor-pointer select-none
+                        ${patchState === 'patched'
+                            ? 'border-green/30 bg-green/5 text-green cursor-default'
+                            : patchState === 'error'
+                                ? 'border-red/30 bg-red/10 text-red hover:bg-red/20'
+                                : 'border-yellow/30 bg-yellow/5 text-yellow hover:bg-yellow/10 animate-pulse'
+                        }`}
+                    title={patchState === 'patched' ? 'Visor error tracking is active' : 'Click to enable Visor error tracking in your app'}
+                >
+                    {patchState === 'patched'
+                        ? <><ShieldCheck size={12} className="shrink-0" /> <span>Visor Tracking Active</span></>
+                        : patchState === 'error'
+                            ? <><ShieldAlert size={12} className="shrink-0" /> <span>Tracking failed — retry</span></>
+                            : patching
+                                ? <><Loader2 size={12} className="animate-spin shrink-0" /> <span>Injecting tracker...</span></>
+                                : <><Shield size={12} className="shrink-0" /> <span>⚡ Click to enable error tracking</span></>
+                    }
+                </div>
+            )}
+
             {status === 'error' && (
                 <div className="text-red text-xs mt-1 bg-red/10 p-1 rounded border border-red/20">
                     Process exited with error.
@@ -67,14 +119,14 @@ const ForgeCard = ({ folder, status, isActive, onClick, onRun, onStop }) => {
                 </div>
 
                 <div className="flex gap-2">
-                    {isRunning && folder.executables?.[0]?.port && (
+                    {isRunning && url && (
                         <a
-                            href={`http://localhost:${folder.executables[0].port}`}
+                            href={url}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
                             className="flex items-center justify-center gap-1 px-2 py-1 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors bg-blue/20 text-blue hover:bg-blue/30"
-                            title={`Open port ${folder.executables[0].port}`}
+                            title={`Open ${url}`}
                         >
                             <ExternalLink size={12} /> Open
                         </a>
@@ -83,6 +135,7 @@ const ForgeCard = ({ folder, status, isActive, onClick, onRun, onStop }) => {
                         <button
                             onClick={(e) => {
                                 e.stopPropagation();
+                                setPatchState('unknown');
                                 onRun();
                             }}
                             className="flex items-center justify-center gap-1 px-2 py-1 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors bg-green/20 text-green hover:bg-green/30"

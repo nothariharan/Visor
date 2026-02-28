@@ -233,3 +233,5 @@ Return the complete fixed code now:`;
         return diff;
     }
 }
+
+module.exports = { AIFixService };

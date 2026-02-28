@@ -14,6 +14,7 @@ export default function RunControls() {
     const [outputs, setOutputs] = useState({}); // { [id]: [{type, text, timestamp}] }
     const [statuses, setStatuses] = useState({}); // { [id]: 'stopped' | 'starting' | 'running' | 'error' }
     const [isExpanded, setIsExpanded] = useState(true);
+    const [isPatching, setIsPatching] = useState(false);
     const [socket, setSocket] = useState(null);
     const [loading, setLoading] = useState(true);
 
@@ -131,13 +132,13 @@ export default function RunControls() {
             const { error, primaryFile, executionPath, processId } = data;
             const errorMsg = error?.message || 'Unknown error';
             const fileInfo = primaryFile ? ` (${primaryFile})` : '';
-            
+
             // Use the processId from the event, or fall back to activeRuntimeId
             const targetId = processId || activeRuntimeId;
             if (targetId) {
                 appendOutput(targetId, { type: 'error', text: `>>> ERROR: ${errorMsg}${fileInfo}`, timestamp: Date.now() });
             }
-            
+
             // Also emit to store for potential highlighting
             if (primaryFile) {
                 console.log('[Visor] Execution error detected:', primaryFile);
@@ -220,6 +221,31 @@ export default function RunControls() {
     const handleClear = () => {
         if (activeRuntimeId) {
             setOutputs(prev => ({ ...prev, [activeRuntimeId]: [] }));
+        }
+    };
+
+    const handleAutoPatch = async () => {
+        const runtime = getActiveRuntime();
+        if (!runtime) return;
+        setIsPatching(true);
+        try {
+            const res = await fetch('/api/project/patch-html', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: runtime.workingDir })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('Successfully injected Visor Error Tracker into index.html! Restarting process to apply...');
+                handleRestart();
+            } else {
+                alert('Patch failed: ' + data.error);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Error during Auto-Patch');
+        } finally {
+            setIsPatching(false);
         }
     };
 
@@ -316,19 +342,15 @@ export default function RunControls() {
                             <div className="flex-1">
                                 <h4 className="text-xs font-bold text-blue-400 uppercase tracking-wider mb-1">Enable Full Error Detection</h4>
                                 <p className="text-[11px] text-slate-300 leading-relaxed mb-2">
-                                    To capture browser-side errors (like React undefined errors), add this to your <code className="bg-black/30 px-1 py-0.5 rounded text-blue-200">index.html</code> in the <code className="bg-black/30 px-1 py-0.5 rounded text-blue-200">&lt;head&gt;</code>:
+                                    To capture browser-side errors (like React undefined errors) and display them in the graph, the Visor Tracker script must exist in your <code className="bg-black/30 px-1 py-0.5 rounded text-blue-200">index.html</code>.
                                 </p>
-                                <div className="bg-black/50 p-2 rounded border border-slate-700/50 flex items-center justify-between group">
-                                    <code className="text-[10px] text-emerald-400 font-mono select-all">
-                                        {`<script src="${window.location.protocol}//${window.location.host}/error-reporter.js"></script>`}
-                                    </code>
-                                    <button
-                                        onClick={() => navigator.clipboard.writeText(`<script src="${window.location.protocol}//${window.location.host}/error-reporter.js"></script>`)}
-                                        className="text-[10px] text-slate-500 hover:text-white uppercase font-bold opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        Copy
-                                    </button>
-                                </div>
+                                <button
+                                    onClick={handleAutoPatch}
+                                    disabled={isPatching}
+                                    className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold py-1 px-3 rounded shadow transition-colors w-full flex justify-center items-center h-7"
+                                >
+                                    {isPatching ? 'Patching HTML...' : 'Auto-Patch index.html'}
+                                </button>
                             </div>
                         </div>
                     </div>

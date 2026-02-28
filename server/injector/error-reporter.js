@@ -1,9 +1,9 @@
 (function () {
     // Visor Error Reporter
     // Captures browser errors and sends them to the Visor backend for visualization
-    const VISOR_PORT = 3333;
+    const VISOR_PORT = 6767;
     const VISOR_URL = `http://localhost:${VISOR_PORT}/api/browser-error`;
-    
+
     // Working directory - set by the server when serving the script
     const WORKING_DIR = "";
 

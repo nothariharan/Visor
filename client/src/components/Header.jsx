@@ -19,26 +19,28 @@ export default function Header({ currentMode, onModeChange }) {
     };
 
     const formatPath = (path) => {
-        if (!path || path === 'Visor') return 'Visor';
+        if (!path) return '';
 
+        // Strip 'Visor' completely if it's the root
         let normalized = path.replace(/\\/g, '/');
-        const rootMatch = normalized.match(/(?:^|\/)visor\/(.+)$/i);
+        if (normalized.toLowerCase() === 'visor') return '';
 
+        // Remove leading Visor/ if present
+        const rootMatch = normalized.match(/(?:^|\/)visor\/(.+)$/i);
         if (rootMatch) {
             normalized = rootMatch[1];
-        } else if (normalized.toLowerCase() === 'visor' || normalized.toLowerCase().endsWith('/visor')) {
-            return 'Visor';
         }
 
         const parts = normalized.split('/').filter(Boolean);
         if (parts.length > 2) {
-            return `Visor / ... / ${parts[parts.length - 2]} / ${parts[parts.length - 1]}`;
+            return `... / ${parts[parts.length - 2]} / ${parts[parts.length - 1]}`;
         } else if (parts.length > 0) {
-            return `Visor / ${parts.join(' / ')}`;
+            return parts.join(' / ');
         }
-
-        return 'Visor';
+        return '';
     };
+
+    const formatted = formatPath(selectedPath);
 
     return (
         <header className="h-14 bg-crust border-b-2 border-surface1 relative flex items-center px-6">
@@ -47,10 +49,14 @@ export default function Header({ currentMode, onModeChange }) {
                 <ArrowRight size={16} className="text-green shrink-0" />
                 <div className="flex items-center gap-1 overflow-hidden">
                     <span className="text-blue font-bold shrink-0">~/visor</span>
-                    <span className="text-subtext0 shrink-0">/</span>
-                    <span className="text-text truncate" title={selectedPath}>
-                        {formatPath(selectedPath)}
-                    </span>
+                    {formatted && (
+                        <>
+                            <span className="text-subtext0 shrink-0">/</span>
+                            <span className="text-text truncate" title={selectedPath}>
+                                {formatted}
+                            </span>
+                        </>
+                    )}
                 </div>
             </div>
 

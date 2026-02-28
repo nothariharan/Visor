@@ -61,12 +61,45 @@ class ProcessRunner extends EventEmitter {
         // Set active process for error tracking
         this.activeProcessId = id;
 
+        // Register CWD with tracer so Vite relative paths can be resolved
+        this.tracer.registerProcessCwd(id, cwd);
+
         // Detect entry point
         this.detectEntryPoint(id, command, cwd);
 
         // Helper: detect URLs in output
-        const urlRegex = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::(\d+))?(?:\/[\w\-\.?\/=]*)?)/i;
-        const portOnlyRegex = /(?:on port|listening on|http:\/\/localhost:|:\s*)(\d{3,5})/i;
+        // ANSI codes from Vite color output break URL regex (e.g. http://\x1b[36mlocalhost\x1b[0m:5173)
+        const stripAnsi = (s) => s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+        const urlRegex = /(https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(?::(\d+))?(?:\/[\w\-\.\/]*)?)/i;
+        const portOnlyRegex = /(?:local:|local\s*http[s]?:\/\/localhost:|on port|listening on|http:\/\/localhost:|:\s*)(\d{3,5})/i;
+
+        const detectUrl = (rawStr, procId) => {
+            try {
+                const str = stripAnsi(rawStr);
+                const procData = this.processes.get(procId);
+                if (!procData || procData.url) return;
+                const match = str.match(urlRegex);
+                const url = match ? match[1] : null;
+                if (url && url.match(/:\d+/)) {
+                    procData.url = url;
+                    console.log('[DBG:URL] full url detected:', url);
+                    this.emit('url', { id: procId, url });
+                } else {
+                    const pmatch = str.match(portOnlyRegex);
+                    if (pmatch) {
+                        const port = pmatch[1];
+                        const builtUrl = 'http://localhost:' + port;
+                        procData.url = builtUrl;
+                        console.log('[DBG:URL] port-only fallback:', builtUrl);
+                        this.emit('url', { id: procId, url: builtUrl });
+                    } else if (url) {
+                        procData.url = url;
+                        console.log('[DBG:URL] portless url (last resort):', url);
+                        this.emit('url', { id: procId, url });
+                    }
+                }
+            } catch (e) {}
+        };
 
         // Handle stdout
         proc.stdout.on('data', (data) => {
@@ -75,31 +108,8 @@ class ProcessRunner extends EventEmitter {
 
             const str = data.toString();
 
-            // URL detection
-            try {
-                const match = str.match(urlRegex);
-                if (match) {
-                    const url = match[1];
-                    const procData = this.processes.get(id);
-                    if (procData && !procData.url) {
-                        procData.url = url;
-                        this.emit('url', { id, url });
-                    }
-                } else {
-                    const pmatch = str.match(portOnlyRegex);
-                    if (pmatch) {
-                        const port = pmatch[1];
-                        const url = `http://localhost:${port}`;
-                        const procData = this.processes.get(id);
-                        if (procData && !procData.url) {
-                            procData.url = url;
-                            this.emit('url', { id, url });
-                        }
-                    }
-                }
-            } catch (e) {
-                // ignore regex errors
-            }
+            // URL detection (uses shared detectUrl helper that strips ANSI codes)
+            detectUrl(str, id);
 
             this.emit('output', {
                 id,
@@ -115,31 +125,8 @@ class ProcessRunner extends EventEmitter {
 
             const str = data.toString();
 
-            // URL detection (stderr sometimes prints the listening info)
-            try {
-                const match = str.match(urlRegex);
-                if (match) {
-                    const url = match[1];
-                    const procData = this.processes.get(id);
-                    if (procData && !procData.url) {
-                        procData.url = url;
-                        this.emit('url', { id, url });
-                    }
-                } else {
-                    const pmatch = str.match(portOnlyRegex);
-                    if (pmatch) {
-                        const port = pmatch[1];
-                        const url = `http://localhost:${port}`;
-                        const procData = this.processes.get(id);
-                        if (procData && !procData.url) {
-                            procData.url = url;
-                            this.emit('url', { id, url });
-                        }
-                    }
-                }
-            } catch (e) {
-                // ignore
-            }
+            // URL detection in stderr (uses shared detectUrl helper)
+            detectUrl(str, id);
 
             this.emit('output', {
                 id,

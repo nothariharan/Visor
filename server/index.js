@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs-extra');
 const path = require('path');
 const chokidar = require('chokidar');
+const httpProxy = require('http-proxy');
 const { generateGraph, getCachedGraph } = require('./graph');
 const {
     getGitMetadata,
@@ -331,18 +333,91 @@ const io = new Server(server, { cors: { origin: '*' } });
 
 const processRunner = new ProcessRunner(ROOT_DIR);
 
-// Forward process output to WebSocket clients
+// Forward process output to WebSocket clients (DEBUG MODE)
 processRunner.on('output', (data) => io.emit('process:output', data));
-processRunner.on('exit', (data) => io.emit('process:exit', data));
+processRunner.on('exit', (data) => { console.log('[DBG:exit] id:', data.id, 'code:', data.code); io.emit('process:exit', data); });
 processRunner.on('error', (data) => io.emit('process:error', data));
-processRunner.on('execution:error', (data) => io.emit('execution:error', data));
-processRunner.on('execution:warning', (data) => io.emit('execution:warning', data));
-processRunner.on('execution:trace', (data) => io.emit('execution:trace', data));
-processRunner.on('url', (data) => io.emit('process:url', data));
-processRunner.on('execution:entry', (data) => io.emit('execution:entry', data));
-processRunner.on('execution:import', (data) => io.emit('execution:import', data));
-processRunner.on('execution:component', (data) => io.emit('execution:component', data));
-processRunner.on('execution:start', (data) => io.emit('execution:start', data));
+
+processRunner.on('execution:error', (data) => {
+    console.log('\n[DBG:ERR] execution:error fired!');
+    console.log('  primaryFile:', data.primaryFile || '(none)');
+    console.log('  error msg  :', (data.error && data.error.message) || '(none)');
+    console.log('  frames     :', (data.executionPath && data.executionPath.length) || 0);
+    if (data.executionPath && data.executionPath.length) {
+        data.executionPath.forEach(function (f, i) { console.log('    [' + i + '] ' + f.file); });
+    }
+    io.emit('execution:error', data);
+});
+
+processRunner.on('execution:warning', (data) => {
+    console.log('[DBG:WARN] execution:warning:', data.file || '(no file)');
+    io.emit('execution:warning', data);
+});
+
+processRunner.on('execution:trace', (data) => {
+    console.log('[DBG:TRC] execution:trace:', data.file || data.id || '(no id)');
+    io.emit('execution:trace', data);
+});
+
+processRunner.on('url', (data) => {
+    console.log('[DBG:URL] process url:', data.url);
+    io.emit('process:url', data);
+
+    // --- Auto-inject error reporter into the project's index.html ---
+    (async () => {
+        try {
+            const procData = processRunner.processes && processRunner.processes.get(data.id);
+            const cwd = procData ? procData.cwd : ROOT_DIR;
+            // Find index.html — could be in project root, public/, or src/
+            const candidates = [
+                path.join(cwd, 'index.html'),
+                path.join(cwd, 'public', 'index.html'),
+            ];
+            const htmlPath = candidates.find(p => fs.existsSync(p));
+            if (!htmlPath) {
+                console.log('[AutoPatch] No index.html found in', cwd);
+                return;
+            }
+            let html = await fs.readFile(htmlPath, 'utf8');
+            if (html.includes('visor-tracker') || html.includes('error-reporter.js')) {
+                console.log('[AutoPatch] Already injected in', htmlPath);
+                return;
+            }
+            const scriptUrl = 'http://localhost:' + PORT + '/error-reporter.js?cwd=' + encodeURIComponent(cwd);
+            const injectionTag = '<script id="visor-tracker" src="' + scriptUrl + '"></script>';
+            if (html.includes('</head>')) {
+                html = html.replace('</head>', '  ' + injectionTag + '\n</head>');
+            } else {
+                html += '\n' + injectionTag;
+            }
+            await fs.writeFile(htmlPath, html, 'utf8');
+            console.log('[AutoPatch] Injected error-reporter into', htmlPath);
+            io.emit('process:patch-status', { id: data.id, patched: true, path: htmlPath });
+        } catch (err) {
+            console.error('[AutoPatch] Failed:', err.message);
+        }
+    })();
+});
+
+processRunner.on('execution:entry', (data) => {
+    console.log('[DBG:ENTRY] execution:entry:', data.file || '(no file)');
+    io.emit('execution:entry', data);
+});
+
+processRunner.on('execution:import', (data) => {
+    console.log('[DBG:IMP] execution:import:', data.file || '(no file)');
+    io.emit('execution:import', data);
+});
+
+processRunner.on('execution:component', (data) => {
+    console.log('[DBG:COMP] execution:component:', data.file || '(no file)');
+    io.emit('execution:component', data);
+});
+
+processRunner.on('execution:start', (data) => {
+    console.log('[DBG:START] execution:start port:', data.port || '(unknown)');
+    io.emit('execution:start', data);
+});
 
 // --- Browser Error Handling ---
 app.get('/error-reporter.js', (req, res) => {
@@ -372,9 +447,43 @@ app.post('/api/browser-error', (req, res) => {
     res.json({ received: true });
 });
 
+// --- Native HTML Patcher ---
+app.post('/api/project/patch-html', async (req, res) => {
+    try {
+        const targetDir = req.body.path || ROOT_DIR;
+        const htmlPath = path.join(targetDir, 'index.html');
+
+        if (!fs.existsSync(htmlPath)) {
+            return res.status(404).json({ success: false, error: 'index.html not found in project root' });
+        }
+
+        let html = await fs.readFile(htmlPath, 'utf8');
+        const scriptUrl = `http://localhost:${PORT}/error-reporter.js?cwd=${encodeURIComponent(targetDir)}`;
+        const injectionTag = `<script id="visor-tracker" src="${scriptUrl}"></script>`;
+
+        if (html.includes('visor-tracker') || html.includes('error-reporter.js')) {
+            return res.json({ success: true, message: 'Tracker already installed in index.html' });
+        }
+
+        if (html.includes('</head>')) {
+            html = html.replace('</head>', `  ${injectionTag}\n</head>`);
+        } else if (html.includes('</body>')) {
+            html = html.replace('</body>', `  ${injectionTag}\n</body>`);
+        } else {
+            html += `\n${injectionTag}`;
+        }
+
+        await fs.writeFile(htmlPath, html, 'utf8');
+        res.json({ success: true, message: 'Successfully patched index.html' });
+    } catch (err) {
+        console.error('Patch HTML Error:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // --- AI Auto Fix Service ---
 const { AIFixService } = require('./ai/fix-service');
-const fixService = new AIFixService('AIzaSyAzgEW0kHC6D1cAlVwUxiIgDLTLkoUN5PA');
+const fixService = new AIFixService(process.env.GEMINI_API_KEY);
 
 app.post('/api/ai/fix-error', async (req, res) => {
     const { filePath, error } = req.body;

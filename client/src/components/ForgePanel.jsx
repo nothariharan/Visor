@@ -12,6 +12,7 @@ export default function ForgePanel() {
     const [socket, setSocket] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
+    const [urls, setUrls] = useState({}); // processId -> url
 
     const outputRef = useRef(null);
     const socketUrl = import.meta.env.DEV ? 'http://localhost:6767' : '/';
@@ -93,6 +94,14 @@ export default function ForgePanel() {
             const { id, code } = data;
             setStatuses(prev => ({ ...prev, [id]: 'stopped' }));
             appendOutput(id, { type: 'system', text: `>>> Process exited with code ${code}`, timestamp: Date.now() });
+        });
+
+        newSocket.on('process:url', (data) => {
+            const { id, url } = data;
+            console.log('[ForgePanel] Received URL for', id, '->', url);
+            setUrls(prev => ({ ...prev, [id]: url }));
+            setStatuses(prev => ({ ...prev, [id]: 'running' }));
+            appendOutput(id, { type: 'system', text: `>>> Server ready at ${url}`, timestamp: Date.now() });
         });
 
         return () => newSocket.close();
@@ -252,6 +261,7 @@ export default function ForgePanel() {
                                 onClick={() => setActiveExecutableId(folder.path)}
                                 onRun={() => handleRun(folder.path)}
                                 onStop={() => handleStop(folder.path)}
+                                url={urls[folder.path] || null}
                             />
                         ))
                     ) : (
