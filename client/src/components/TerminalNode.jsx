@@ -5,7 +5,7 @@ import useStore from '../store';
 import { getFileTypeStyles } from '../utils/fileColors';
 
 const TerminalNode = ({ id, data, selected }) => {
-  const { activeErrors, searchQuery, historicalChanges } = useStore();
+  const { activeErrors, searchQuery, historicalChanges, isFixing, handleAIFix } = useStore();
 
   const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
   const normalizedId = normalize(id);
@@ -45,7 +45,7 @@ const TerminalNode = ({ id, data, selected }) => {
       isExpanded ? 'shadow-none' : 'shadow-hard';
 
   const animationClass = isExecuting ? 'animate-pulse-slow' :
-    isError ? 'animate-pulse' : '';
+    isError ? 'node-execution-error' : '';
 
   const errorMessage = errorData?.message || data.errorMessage;
 
@@ -126,8 +126,41 @@ const TerminalNode = ({ id, data, selected }) => {
 
       {/* Error/Warning Message */}
       {(isError || isWarning) && errorMessage && (
-        <div className={`p-2 border-t-2 ${isError ? 'border-red/20 bg-red/5' : 'border-yellow/20 bg-yellow/5'}`}>
-          {/* ... error content ... */}
+        <div className={`p-2 border-t-2 flex flex-col gap-1 ${isError ? 'border-red/20 bg-red/5' : 'border-yellow/20 bg-yellow/5'}`}>
+          <div className="text-xs break-words">{errorMessage}</div>
+          {isError && (
+            <div className="flex flex-col gap-1 mt-1">
+              {errorData?.line && (
+                <button
+                  className="w-full py-1 bg-red-700/80 hover:bg-red-600 text-white text-[10px] font-bold rounded transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.location.href = `vscode://file/${data.path || id}:${errorData.line}`;
+                  }}
+                >
+                  Jump to Error line {errorData.line} →
+                </button>
+              )}
+              <button
+                disabled={isFixing}
+                className={`w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
+                  ? 'opacity-50 cursor-not-allowed'
+                  : 'shadow-[0_0_12px_rgba(99,102,241,0.6)] hover:shadow-[0_0_18px_rgba(99,102,241,0.8)]'
+                  }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (handleAIFix) {
+                    handleAIFix(
+                      data.path || id,
+                      errorData?.originalError || { message: errorMessage, type: 'BrowserError', line: errorData?.line }
+                    );
+                  }
+                }}
+              >
+                ✨ {isFixing ? 'AI is fixing...' : 'AI Auto-Fix'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
