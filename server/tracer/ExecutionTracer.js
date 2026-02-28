@@ -11,6 +11,10 @@ class ExecutionTracer extends EventEmitter {
         this.errors = [];
         // Per-process working directory map (set when process starts)
         this.processCwds = new Map();
+        // Rolling terminal context per process for multi-line error parsing
+        this.terminalContexts = new Map();
+        // De-duplicate noisy repeated emits from dev servers
+        this.errorFingerprints = new Map();
     }
 
     /** Register the working directory for a process */
@@ -32,6 +36,7 @@ class ExecutionTracer extends EventEmitter {
         const output = data.toString().replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
         const lines = output.split('\n').filter(l => l.trim());
         const cwd = this.getCwd(processId);
+        this.appendTerminalContext(processId, output);
 
         for (const line of lines) {
             // --- Vite-specific patterns first (before generic error check) ---
@@ -66,13 +71,19 @@ class ExecutionTracer extends EventEmitter {
 
             // Vite/Node error patterns (strict - only real errors)
             if (this.isRealError(line)) {
-                this.handleError(processId, line, output, stream, cwd);
+                this.handleError(processId, line, this.getTerminalContext(processId), stream, cwd);
                 continue;
             }
 
             // Vite internal server error block
             if (line.includes('[vite]') && line.toLowerCase().includes('error')) {
-                this.handleViteError(processId, output, cwd);
+                this.handleViteError(processId, this.getTerminalContext(processId), cwd);
+                continue;
+            }
+
+            // File reference lines often arrive after the "error" line in another chunk.
+            if (this.isTerminalFileReferenceLine(line) && this.hasBufferedErrorContext(processId)) {
+                this.handleError(processId, line, this.getTerminalContext(processId), stream, cwd);
                 continue;
             }
 
@@ -106,6 +117,34 @@ class ExecutionTracer extends EventEmitter {
                 continue;
             }
         }
+    }
+
+    appendTerminalContext(processId, text) {
+        const prev = this.terminalContexts.get(processId) || '';
+        const merged = `${prev}\n${text}`;
+        this.terminalContexts.set(processId, merged.slice(-12000));
+    }
+
+    getTerminalContext(processId) {
+        return this.terminalContexts.get(processId) || '';
+    }
+
+    hasBufferedErrorContext(processId) {
+        const context = this.getTerminalContext(processId);
+        return /\berror\b|failed|plugin:vite|internal server error|pre-transform/i.test(context);
+    }
+
+    isViteErrorContext(text) {
+        return /\[vite\]|vite:import-analysis|plugin:vite|pre-transform|internal server error/i.test(text || '');
+    }
+
+    isTerminalFileReferenceLine(line) {
+        if (!line) return false;
+        return (
+            /(?:^|\s)File:\s+[A-Za-z]:[\\/].+\.(?:jsx?|tsx?|vue|svelte):\d+:\d+/.test(line) ||
+            /(?:^|\s)[A-Za-z]:[\\/].+\.(?:jsx?|tsx?|vue|svelte):\d+:\d+/.test(line) ||
+            /(?:^|\s)(?:src|app|server|client|pages|components)\/[^\s:]+\.(?:jsx?|tsx?|vue|svelte):\d+:\d+/.test(line)
+        );
     }
 
     /**
@@ -170,6 +209,10 @@ class ExecutionTracer extends EventEmitter {
                 this.handleViteError(processId, fullOutput, cwd);
                 return;
             }
+            // For Vite multi-line errors, wait until we receive the File:path:line:col line.
+            if (this.isViteErrorContext(fullOutput)) {
+                return;
+            }
             // Node.js stack-based error
             if (fullOutput.includes('Error:') && fullOutput.includes('    at ')) {
                 this.handleNodeError(processId, fullOutput, cwd);
@@ -186,6 +229,10 @@ class ExecutionTracer extends EventEmitter {
             return;
         }
 
+        if (!this.shouldEmitError(processId, resolved)) {
+            return;
+        }
+
         this.emit('execution:error', {
             processId,
             error: resolved,
@@ -193,6 +240,21 @@ class ExecutionTracer extends EventEmitter {
             executionPath: [{ file: resolved.file, line: resolved.line, column: resolved.column }],
             timestamp: Date.now()
         });
+    }
+
+    shouldEmitError(processId, resolved) {
+        const fingerprint = [
+            processId || 'unknown',
+            resolved.file || 'nofile',
+            resolved.line || 0,
+            resolved.column || 0,
+            (resolved.message || '').slice(0, 180)
+        ].join('|');
+        const now = Date.now();
+        const last = this.errorFingerprints.get(fingerprint);
+        if (last && now - last < 1500) return false;
+        this.errorFingerprints.set(fingerprint, now);
+        return true;
     }
 
     parseError(errorOutput, cwd) {
@@ -227,7 +289,7 @@ class ExecutionTracer extends EventEmitter {
         }
 
         // Absolute path with line/col
-        match = errorOutput.match(/([A-Za-z]:[\\/][^\s:]+\.(?:js|ts|jsx|tsx)):(\d+):(\d+)/);
+        match = errorOutput.match(/([A-Za-z]:[\\/][^\s]+?\.(?:js|ts|jsx|tsx|vue|svelte)):(\d+):(\d+)/);
         if (match && !match[1].includes('node_modules')) {
             return {
                 file: match[1],
@@ -282,6 +344,11 @@ class ExecutionTracer extends EventEmitter {
 
         const messageMatch = text.match(/(?:Internal server error:|Pre-transform error:|Plugin.*?error:|Error:|\[plugin:[^\]]+\])\s+(.+)/i);
         const message = messageMatch ? messageMatch[1] : 'Vite Build/Plugin Error';
+
+        // Vite sends multi-line errors; if file location has not arrived yet, wait.
+        if (files.length === 0 && /(internal server error:|pre-transform error:|plugin:\s+vite:)/i.test(text)) {
+            return;
+        }
 
         this.emit('execution:error', {
             processId,
