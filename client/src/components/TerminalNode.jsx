@@ -40,9 +40,7 @@ const TerminalNode = ({ id, data, selected }) => {
               : selected ? '#89b4fa'
                 : '#585b70';
 
-  const shadowColor = isError ? 'shadow-hard-red' :
-    isExecuting ? 'shadow-hard-green' :
-      isExpanded ? 'shadow-none' : 'shadow-hard';
+  const shadowColor = isExpanded ? 'shadow-none' : 'shadow-hard';
 
   const animationClass = isExecuting ? 'animate-pulse-slow' :
     isError ? 'node-execution-error' : '';
