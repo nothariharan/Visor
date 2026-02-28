@@ -1,12 +1,12 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
 
 class AIFixService {
-    constructor(apiKey) {
-        this.genAI = new GoogleGenerativeAI(apiKey);
-        this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    constructor(apiKey, model) {
+        this.apiKey = apiKey;
+        this.model = model || 'arcee-ai/trinity-large-preview:free';
+        this.apiUrl = 'https://openrouter.ai/api/v1/chat/completions';
     }
 
     async fixError(filePath, errorContext) {
@@ -26,7 +26,9 @@ class AIFixService {
             );
 
             // 4. Generate fix
+            console.log(`[AIFixService] Generating fix for ${filePath}...`);
             const fixedCode = await this.generateFix(context);
+            console.log(`[AIFixService] Fix generated (length: ${fixedCode?.length || 0})`);
 
             // 5. Validate fix (basic)
             if (!this.validateFix(fixedCode, fileContent)) {
@@ -151,16 +153,50 @@ ${context}
 
 CRITICAL INSTRUCTIONS:
 1. Identify the bug based on the error message and the code.
-2. Return ONLY the fully fixed code for the entire file. Do not omit any part of the file.
-3. The response must be valid code ready to be saved without any modifications.
-4. DO NOT wrap the code in markdown code fences like \`\`\`javascript or \`\`\`. Start immediately with the raw code.
-5. Provide NO explanations, text, or comments about the changes. Just the code itself.
-6. Preserve all imports, exports, styling, and general file structure. Fix ONLY the erroneous part.
+2. Fix ONLY the specific error mentioned. Do NOT refactor, reformat, or change any other part of the file.
+3. Return ONLY the fully fixed code for the entire file. Do not omit any part of the file.
+4. The response must be valid code ready to be saved without any modifications.
+5. DO NOT wrap the code in markdown code fences like \`\`\`javascript or \`\`\`. Start immediately with the raw code.
+6. Provide NO explanations, text, or comments about the changes. Just the code itself.
+7. Preserve all imports, exports, styling, and general file structure. 
 
 Return the complete fixed code now:`;
 
-        const result = await this.model.generateContent(prompt);
-        let fixedCode = result.response.text();
+        console.log(`[AIFixService] Prompt generated (length: ${prompt.length}). First 200 chars:`);
+        console.log(prompt.substring(0, 200) + '...');
+        console.log(`[AIFixService] Sending request to OpenRouter (Model: ${this.model})...`);
+
+        const response = await fetch(this.apiUrl, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.apiKey} `,
+                'Content-Type': 'application/json',
+                'HTTP-Referer': 'https://github.com/GoogleDeepMind/antigravity',
+                'X-Title': 'Visor AI Fix'
+            },
+            body: JSON.stringify({
+                model: this.model,
+                messages: [
+                    { role: 'user', content: prompt }
+                ],
+                temperature: 0.1
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[AIFixService] OpenRouter API Error(${response.status}): `, errorText);
+            throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} `);
+        }
+
+        const data = await response.json();
+        console.log(`[AIFixService] Received response from OpenRouter.`);
+        let fixedCode = data.choices[0]?.message?.content || '';
+
+        if (!fixedCode) {
+            console.warn(`[AIFixService] AI returned empty content.`);
+            console.debug(`[AIFixService] Full Response Data: `, JSON.stringify(data, null, 2));
+        }
 
         // Clean up response (remove markdown if AI failed to listen)
         if (fixedCode.startsWith('```')) {
@@ -180,7 +216,7 @@ Return the complete fixed code now:`;
         if (!hasCode) return false;
 
         const similarity = this.calculateSimilarity(fixedCode, originalCode);
-        if (similarity > 0.999) return false; // Basically unmodified
+        if (fixedCode.trim() === originalCode.trim()) return false; // Absolutely identical
 
         return true;
     }
@@ -198,8 +234,6 @@ Return the complete fixed code now:`;
     }
 
     async createBackup(filePath, content) {
-        // Save in <project>/.visor/backups
-        // We traverse up to find .visor or just put it in a local .visor dir
         const baseDir = process.cwd();
         const backupDir = path.join(baseDir, '.visor', 'backups');
 

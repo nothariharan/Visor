@@ -1,6 +1,6 @@
 import React, { memo, useState, useEffect } from 'react';
 import { Handle, Position } from 'reactflow';
-import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye, Rocket, Star, Pencil } from 'lucide-react';
+import { FileCode, FileJson, File, AlertCircle, ExternalLink, Eye, Rocket, Star, Pencil, Sparkles } from 'lucide-react';
 import useStore from '../store';
 
 const getIcon = (filename) => {
@@ -15,7 +15,7 @@ const CustomNode = ({ id, data, isConnectable }) => {
     const isFocused = focusedNode === id;
     const [executionState, setExecutionState] = useState(null);
 
-    const { activeErrors, executionStates, isFixing, handleAIFix } = useStore();
+    const { activeErrors, executionStates, isFixing, handleAIFix, fixedFiles } = useStore();
 
     // Derive execution state from global store
     useEffect(() => {
@@ -44,6 +44,9 @@ const CustomNode = ({ id, data, isConnectable }) => {
 
         setExecutionState(null);
     }, [activeErrors, executionStates, id]);
+
+    const normalizePath = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
+    const isFixed = Array.from(fixedFiles).some(f => normalizePath(f) === normalizePath(id));
 
     // Trace/Warning can stay if they come from other sources, 
     // but for now let's assume we removed socket so we can't listen to them here.
@@ -110,6 +113,13 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 </div>
             )}
 
+            {/* Fixed Status Badge (TUI Aesthetic) */}
+            {isFixed && !executionState && (
+                <div className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-emerald-950 border-2 border-emerald-400 flex items-center justify-center text-[10px] z-20 shadow-[0_0_10px_rgba(52,211,153,0.5)] animate-bounce-subtle">
+                    <Sparkles size={12} className="text-emerald-400" />
+                </div>
+            )}
+
             {/* Entry Point Badge */}
             {isEntryPoint && !executionState && (
                 <div className="absolute -top-2.5 -right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500 text-white shadow-md z-10">
@@ -137,6 +147,11 @@ const CustomNode = ({ id, data, isConnectable }) => {
                         <div className="text-[10px] text-slate-400 flex justify-between mt-1">
                             <span>{git.commits} commits</span>
                             {isHighChurn && <AlertCircle size={10} className="text-red-500 inline ml-1" />}
+                        </div>
+                    )}
+                    {isFixed && !executionState && (
+                        <div className="text-[10px] font-mono font-bold text-emerald-400 mt-1 flex items-center gap-1 bg-emerald-950/30 px-1 rounded border border-emerald-500/20">
+                            <span className="opacity-70">[</span>FIXED BY AI<span className="opacity-70">]</span>
                         </div>
                     )}
                     {/* Execution Message */}
@@ -200,8 +215,8 @@ const CustomNode = ({ id, data, isConnectable }) => {
                     <button
                         disabled={isFixing}
                         className={`w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
-                                ? 'opacity-50 cursor-not-allowed'
-                                : 'shadow-[0_0_12px_rgba(99,102,241,0.6)] hover:shadow-[0_0_18px_rgba(99,102,241,0.8)]'
+                            ? 'opacity-50 cursor-not-allowed'
+                            : 'shadow-[0_0_12px_rgba(99,102,241,0.6)] hover:shadow-[0_0_18px_rgba(99,102,241,0.8)]'
                             }`}
                         onClick={(e) => {
                             e.stopPropagation();

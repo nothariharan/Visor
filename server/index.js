@@ -487,14 +487,32 @@ app.post('/api/project/patch-html', async (req, res) => {
 
 // --- AI Auto Fix Service ---
 const { AIFixService } = require('./ai/fix-service');
-const fixService = new AIFixService(process.env.GEMINI_API_KEY);
+const fixService = new AIFixService(process.env.OPENROUTER_API_KEY, process.env.OPENROUTER_MODEL);
 
 app.post('/api/ai/fix-error', async (req, res) => {
     const { filePath, error } = req.body;
-    if (!filePath || !error) return res.status(400).json({ success: false, error: 'Missing filePath or error' });
-    const result = await fixService.fixError(filePath, error);
-    if (result.success) io.emit('ai:fix-applied', { filePath, message: result.message });
-    res.json(result);
+    console.log(`\n[API] POST /api/ai/fix-error`);
+    console.log(`[API] File: ${filePath}`);
+    console.log(`[API] Error Message: ${error?.message}`);
+
+    if (!filePath || !error) {
+        console.warn(`[API] Missing required fields in fix request.`);
+        return res.status(400).json({ success: false, error: 'Missing filePath or error' });
+    }
+
+    try {
+        const result = await fixService.fixError(filePath, error);
+        console.log(`[API] Fix result: success=${result.success}`);
+        if (!result.success) console.error(`[API] Fix error info: ${result.error}`);
+
+        if (result.success) {
+            io.emit('ai:fix-applied', { filePath, message: result.message });
+        }
+        res.json(result);
+    } catch (err) {
+        console.error(`[API] Internal error during fix:`, err);
+        res.status(500).json({ success: false, error: err.message });
+    }
 });
 
 // API: Detect project

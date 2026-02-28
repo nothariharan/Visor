@@ -26,6 +26,7 @@ const useStore = create((set, get) => ({
     lastLayoutHash: null,
     lastSaveAttemptAt: null,
     isSearchModalOpen: false,
+    fixedFiles: new Set(), // Track files fixed by AI in this session
 
     // --- Forge Terminal State (Persistent) ---
     forgeOutputs: {},
@@ -216,10 +217,16 @@ const useStore = create((set, get) => ({
         set({ activeErrors: newErrors });
     },
 
-    clearErrors: () => {
-        set({ activeErrors: {}, executionStates: {} });
+    clearErrors: (keepFixed = false) => {
+        set({
+            activeErrors: {},
+            executionStates: {},
+            fixedFiles: keepFixed ? get().fixedFiles : new Set()
+        });
         get().clearExecutionPath();
     },
+
+    clearFixedFiles: () => set({ fixedFiles: new Set() }),
 
     // ===== AI Fix =====
     isFixing: false,
@@ -245,7 +252,10 @@ const useStore = create((set, get) => ({
 
             if (success) {
                 console.log('[AI Fix] Fix generated and applied successfully! Clearing errors.');
-                get().clearErrors();
+                const newFixed = new Set(get().fixedFiles);
+                newFixed.add(filePath);
+                get().clearErrors(true); // Keep fixed status
+                set({ fixedFiles: newFixed });
             } else {
                 console.warn('[AI Fix] Fix failed:', apiError || message);
                 alert('AI Fix Failed: ' + (apiError || message));
