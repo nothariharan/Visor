@@ -327,13 +327,29 @@ async function generateGraph(rootDir, expandedFolders = [], options = {}) {
         function traverseAndFlatten(elkNode, parentId = null) {
             // Find original node data
             const originalNode = nodes.find(n => n.id === elkNode.id);
+
+            // Re-calculate the actual parent directory for FileTree hierarchy
+            // (Even if ELK detached it for layout purposes, we want the logical hierarchy)
+            let actualParentId = parentId;
+            if (!actualParentId && originalNode) {
+                const parentDir = path.dirname(originalNode.id);
+                // Ensure the parent directory is not the same as the node and is in the folders list
+                if (foldersToScan.has(parentDir) && parentDir !== originalNode.id) {
+                    // CRITICAL FIX: Only assign if the parentDir itself is a node in the graph
+                    // This prevents React Flow 'Parent node not found' errors when rootDir is assigned as parent
+                    if (nodes.some(n => n.id === parentDir)) {
+                        actualParentId = parentDir;
+                    }
+                }
+            }
+
             if (originalNode) {
                 positionedNodes.push({
                     ...originalNode,
                     position: { x: elkNode.x, y: elkNode.y },
-                    style: { width: elkNode.width, height: elkNode.height }, // ELK calculates size for containers!
-                    parentNode: parentId, // React Flow Parent
-                    extent: undefined, // Allow dragging outside parent
+                    style: { width: elkNode.width, height: elkNode.height },
+                    parentNode: actualParentId, // Logic hierarchy for React Flow and FileTree
+                    extent: undefined,
                     data: { ...originalNode.data, width: elkNode.width, height: elkNode.height }
                 });
             }

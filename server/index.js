@@ -1118,7 +1118,10 @@ const initializeVisorDir = async () => {
 
 // Start server with port fallback
 const startServer = (port) => {
-    server.listen(port, async () => {
+    const onListening = async () => {
+        // Remove error listener since we've successfully started
+        server.removeAllListeners('error');
+
         await initializeVisorDir();
 
         console.log(`\n✅ Server running on http://localhost:${port}`);
@@ -1139,9 +1142,14 @@ const startServer = (port) => {
             // Emit event to all connected clients
             io.emit('chronicle:update', { event, path });
         });
-    });
+    };
 
-    server.on('error', (err) => {
+    server.once('listening', onListening);
+
+    server.once('error', (err) => {
+        // Clean up listening listener if error occurs
+        server.removeListener('listening', onListening);
+
         if (err.code === 'EADDRINUSE') {
             console.warn(`⚠️  Port ${port} is already in use, trying port ${port + 1}...`);
             startServer(port + 1);
@@ -1150,6 +1158,8 @@ const startServer = (port) => {
             process.exit(1);
         }
     });
+
+    server.listen(port);
 };
 
 startServer(PORT);

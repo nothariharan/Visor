@@ -147,7 +147,8 @@ class ExecutionTracer extends EventEmitter {
             /Cannot find module/.test(line) ||
             /Error: /.test(line) ||
             /\[error\]/i.test(line) ||
-            /✗\s+error/i.test(line)
+            /✗\s+error/i.test(line) ||
+            /\[plugin:vite:/.test(line)
         );
     }
 
