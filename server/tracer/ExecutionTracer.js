@@ -148,7 +148,8 @@ class ExecutionTracer extends EventEmitter {
             /Error: /.test(line) ||
             /\[error\]/i.test(line) ||
             /✗\s+error/i.test(line) ||
-            /\[plugin:vite:/.test(line)
+            /\[plugin:vite:/.test(line) ||
+            /Plugin:\s+vite:/.test(line)
         );
     }
 
@@ -265,7 +266,9 @@ class ExecutionTracer extends EventEmitter {
         // Vite format: "Plugin vite:esbuild:\n  /path:line:col"
         // Or "File: /path/to/file.jsx:5:26"
         // Or Standalone "/path/to/file.jsx:5:26" at start of line
-        const fileMatch = text.match(/(?:Plugin\s+[^:]+:\n\s+|x\s+Build failed.*\n\s+|File:\s+|^)([^\/\n:]*\/[^\n:]+\.(?:jsx?|tsx?|vue|svelte)):(\d+):(\d+)/m) ||
+        // Added: Support for Windows Drives (e.g. D:/) and File: prefix
+        const fileMatch = text.match(/(?:Plugin\s+[^:]+:\n\s+|x\s+Build failed.*\n\s+|File:\s+|(?:\n|^)\s*)([a-zA-Z]:[\\/][^\n:]+\.(?:jsx?|tsx?|vue|svelte)):(\d+):(\d+)/m) ||
+            text.match(/(?:Plugin\s+[^:]+:\n\s+|x\s+Build failed.*\n\s+|File:\s+|(?:\n|^)\s*)([^\s\n:]+\.(?:jsx?|tsx?|vue|svelte)):(\d+):(\d+)/m) ||
             text.match(/([^\s]+\.(?:jsx?|tsx?|vue|svelte)):(\d+):(\d+)/);
 
         let files = [];
@@ -277,7 +280,7 @@ class ExecutionTracer extends EventEmitter {
             }
         }
 
-        const messageMatch = text.match(/(?:Internal server error:|Plugin.*?error:|Error:|\[plugin:[^\]]+\])\s+(.+)/i);
+        const messageMatch = text.match(/(?:Internal server error:|Pre-transform error:|Plugin.*?error:|Error:|\[plugin:[^\]]+\])\s+(.+)/i);
         const message = messageMatch ? messageMatch[1] : 'Vite Build/Plugin Error';
 
         this.emit('execution:error', {
