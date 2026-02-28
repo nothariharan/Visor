@@ -9,6 +9,7 @@ import 'reactflow/dist/style.css';
 const nodeTypes = {
     custom: TerminalNode,
     folder: TerminalNode,
+    default: TerminalNode,
 };
 
 const edgeTypes = {

@@ -2,7 +2,6 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, useReactFlow } from 'reactflow';
 import useStore from '../store';
 import TerminalNode from './TerminalNode';
-import FolderNode from './FolderNode';
 import TerminalEdge from './TerminalEdge';
 import Loader from './Loader';
 import useAutoSave from '../hooks/useAutoSave';
@@ -10,7 +9,7 @@ import 'reactflow/dist/style.css';
 
 const nodeTypes = {
     custom: TerminalNode,
-    folder: FolderNode,
+    folder: TerminalNode,
     default: TerminalNode, // Fallback
 };
 

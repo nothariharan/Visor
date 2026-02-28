@@ -16,8 +16,7 @@ import io from 'socket.io-client';
 import { Loader2, Zap, LayoutGrid, Eye, EyeOff, Rocket, Star } from 'lucide-react';
 import 'reactflow/dist/style.css';
 import useStore from '../store';
-import CustomNode from './CustomNode';
-import FolderNode from './FolderNode';
+import TerminalNode from './TerminalNode';
 import EmptyState from './EmptyState';
 import CustomEdge from './CustomEdge';
 
@@ -27,8 +26,8 @@ const socket = io(socketUrl);
 
 
 const nodeTypes = {
-    custom: CustomNode,
-    folder: FolderNode,
+    custom: TerminalNode,
+    folder: TerminalNode,
 };
 
 const edgeTypes = {
