@@ -159,7 +159,7 @@ const TerminalNode = ({ id, data, selected }) => {
                     }
                   }}
                 >
-                  ✨ {isFixing ? 'fixing...' : 'ai_auto_fix'}
+                  ✨ {isFixing ? 'Fixing...' : 'AI Auto Fix'}
                 </button>
 
                 <button
@@ -169,7 +169,7 @@ const TerminalNode = ({ id, data, selected }) => {
                     useStore.getState().openFile(data.path || id, data.label || 'Unknown');
                   }}
                 >
-                  <span className="opacity-70">&gt;</span> manual_fix
+                  <span className="opacity-70">&gt;</span> Manual Fix
                 </button>
               </div>
             </div>

@@ -232,7 +232,7 @@ const useStore = create((set, get) => ({
                 console.warn('[AI Fix] No fix generated:', message);
             }
         } catch (err) {
-            console.error('[AI Fix] Request failed:', err.message);
+            console.error('[AI Fix] Request failed:', err.response?.data?.error || err.message);
         } finally {
             set({ isFixing: false });
         }
@@ -441,11 +441,66 @@ const useStore = create((set, get) => ({
     },
 
     setFocusedNode: (nodeId) => {
-        // ... (rest of the function is unchanged)
+        const { nodes, edges, adjacency, focusedNode } = get();
+
+        // If clicking same node, toggle off
+        const targetId = focusedNode === nodeId ? null : nodeId;
+
+        set({ focusedNode: targetId });
+
+        if (!targetId) {
+            // Unhide all
+            set({
+                nodes: nodes.map(n => ({ ...n, hidden: false, style: { ...n.style, opacity: 1 } })),
+                edges: edges.map(e => ({ ...e, hidden: false, style: { ...e.style, opacity: 0.5 } }))
+            });
+            return;
+        }
+
+        // Find neighbors
+        const neighbors = new Set();
+        neighbors.add(targetId);
+        const adj = adjacency[targetId];
+        if (adj) {
+            adj.imports.forEach(id => neighbors.add(id));
+            adj.importedBy.forEach(id => neighbors.add(id));
+        }
+
+        // Update visibility
+        set({
+            nodes: nodes.map(n => ({
+                ...n,
+                hidden: !neighbors.has(n.id),
+                style: { ...n.style, opacity: 1 }
+            })),
+            edges: edges.map(e => {
+                const works = neighbors.has(e.source) && neighbors.has(e.target);
+                return {
+                    ...e,
+                    hidden: !works,
+                    style: { ...e.style, opacity: 1 }
+                };
+            })
+        });
     },
 
     openFile: async (path, label) => {
-        // ... (rest of the function is unchanged)
+        // Prevent opening if already open? Or just switch.
+        set({ editingFile: { path, label, content: '// Loading...', originalContent: '' } });
+
+        // Update selected path for breadcrumbs (parent directory of the file)
+        const pathParts = path.replace(/\\/g, '/').split('/');
+        pathParts.pop(); // Remove filename
+        const dirName = pathParts[pathParts.length - 1];
+        set({ selectedPath: dirName || 'Visor' });
+
+        try {
+            const res = await axios.get('/api/files/content', { params: { path } });
+            set({ editingFile: { path, label, content: res.data.content, originalContent: res.data.content } });
+        } catch (err) {
+            console.error(err);
+            set({ editingFile: { path, label, content: '// Error loading file content: ' + err.message, originalContent: '' } });
+        }
     },
 
     setEditingFile: (file) => set({ editingFile: file }),
