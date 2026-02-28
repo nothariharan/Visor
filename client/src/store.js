@@ -27,6 +27,31 @@ const useStore = create((set, get) => ({
     lastSaveAttemptAt: null,
     isSearchModalOpen: false,
 
+    // --- Forge Terminal State (Persistent) ---
+    forgeOutputs: {},
+    forgeStatuses: {},
+
+    appendForgeOutput: (id, entry) => set(state => {
+        const current = state.forgeOutputs[id] || [];
+        const updated = [...current, entry];
+        if (updated.length > 2000) updated.shift();
+        return { forgeOutputs: { ...state.forgeOutputs, [id]: updated } };
+    }),
+
+    setForgeStatus: (id, status) => set(state => ({
+        forgeStatuses: { ...state.forgeStatuses, [id]: status }
+    })),
+
+    initializeForgeState: (folders) => set(state => {
+        const newOutputs = { ...state.forgeOutputs };
+        const newStatuses = { ...state.forgeStatuses };
+        folders.forEach(f => {
+            if (!newOutputs[f.path]) newOutputs[f.path] = [];
+            if (!newStatuses[f.path]) newStatuses[f.path] = 'stopped';
+        });
+        return { forgeOutputs: newOutputs, forgeStatuses: newStatuses };
+    }),
+
     // --- Chronicle Time Travel State ---
     commits: [],
     commitsLoading: false,
@@ -267,26 +292,7 @@ const useStore = create((set, get) => ({
     },
 
     // --- AI Auto Fix ---
-    isFixing: false,
-    handleAIFix: async (filePath, errorObj) => {
-        set({ isFixing: true });
-        console.log('[Store] Requesting AI Auto-Fix for:', filePath);
-        try {
-            const res = await axios.post('/api/ai/fix-error', { filePath, error: errorObj });
-            if (res.data.success) {
-                console.log('✨ AI fixed code successfully:', res.data.message);
-                // Note: File reloading will happen via socket 'ai:fix-applied'
-            } else {
-                console.error('❌ AI fix failed:', res.data.error);
-                alert(`AI Fix Failed: ${res.data.error}`);
-            }
-        } catch (err) {
-            console.error('✨ AI request error:', err);
-            alert('Failed to connect to AI Fix Service.');
-        } finally {
-            set({ isFixing: false });
-        }
-    },
+    // (AIFixService handles this internally now, duplicate removed to prevent conflicts)
 
     organizeGraph: (mode) => {
         const { nodes, edges, adjacency } = get();

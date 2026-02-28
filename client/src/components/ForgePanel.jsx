@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RefreshCw, Terminal, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import io from 'socket.io-client';
+import useStore from '../store';
 import Ansi from 'ansi-to-react';
 import ForgeCard from './ForgeCard';
 
 export default function ForgePanel() {
+    const {
+        forgeOutputs,
+        forgeStatuses,
+        appendForgeOutput,
+        setForgeStatus,
+        initializeForgeState
+    } = useStore();
+
     const [folders, setFolders] = useState([]);
     const [activeExecutableId, setActiveExecutableId] = useState(null);
-    const [outputs, setOutputs] = useState({});
-    const [statuses, setStatuses] = useState({});
     const [socket, setSocket] = useState(null);
     const [loading, setLoading] = useState(true);
     const [isExpanded, setIsExpanded] = useState(true);
@@ -36,21 +43,7 @@ export default function ForgePanel() {
             setFolders(execs);
 
             // Initialize state for outputs and statuses if not already present
-            setOutputs(prev => {
-                const newOutputs = { ...prev };
-                execs.forEach(e => {
-                    if (!newOutputs[e.path]) newOutputs[e.path] = [];
-                });
-                return newOutputs;
-            });
-
-            setStatuses(prev => {
-                const newStatuses = { ...prev };
-                execs.forEach(e => {
-                    if (!newStatuses[e.path]) newStatuses[e.path] = 'stopped';
-                });
-                return newStatuses;
-            });
+            initializeForgeState(execs);
         } catch (err) {
             console.error("Failed to fetch executable folders:", err);
             setFolders([]);
@@ -65,14 +58,7 @@ export default function ForgePanel() {
         setSocket(newSocket);
 
         const appendOutput = (id, entry) => {
-            // Because the process endpoints use the folder path as ID in processRunner
-            // id comes back as the full folder path
-            setOutputs(prev => {
-                const current = prev[id] || [];
-                const updated = [...current, entry];
-                if (updated.length > 2000) updated.shift(); // Keep last 2000 lines
-                return { ...prev, [id]: updated };
-            });
+            appendForgeOutput(id, entry);
         };
 
         newSocket.on('process:output', (data) => {
@@ -92,7 +78,7 @@ export default function ForgePanel() {
 
         newSocket.on('process:exit', (data) => {
             const { id, code } = data;
-            setStatuses(prev => ({ ...prev, [id]: 'stopped' }));
+            setForgeStatus(id, 'stopped');
             appendOutput(id, { type: 'system', text: `>>> Process exited with code ${code}`, timestamp: Date.now() });
         });
 
@@ -100,7 +86,7 @@ export default function ForgePanel() {
             const { id, url } = data;
             console.log('[ForgePanel] Received URL for', id, '->', url);
             setUrls(prev => ({ ...prev, [id]: url }));
-            setStatuses(prev => ({ ...prev, [id]: 'running' }));
+            setForgeStatus(id, 'running');
             appendOutput(id, { type: 'system', text: `>>> Server ready at ${url}`, timestamp: Date.now() });
         });
 
@@ -123,14 +109,8 @@ export default function ForgePanel() {
             // Find matching folder
             const matchingFolder = folders.find(f => normFile.includes(normalize(f.path)));
             if (matchingFolder) {
-                setOutputs(prev => ({
-                    ...prev,
-                    [matchingFolder.path]: [
-                        ...(prev[matchingFolder.path] || []),
-                        { type: 'system', text: `✨ AI Auto-Fix Applied: ${message}`, timestamp: Date.now() },
-                        { type: 'system', text: `>>> Auto-restarting process...`, timestamp: Date.now() }
-                    ]
-                }));
+                appendForgeOutput(matchingFolder.path, { type: 'system', text: `✨ AI Auto-Fix Applied: ${message}`, timestamp: Date.now() });
+                appendForgeOutput(matchingFolder.path, { type: 'system', text: `>>> Auto-restarting process...`, timestamp: Date.now() });
                 // Trigger natural restart using the existing flow
                 handleRun(matchingFolder.path);
             }
@@ -145,11 +125,11 @@ export default function ForgePanel() {
         if (outputRef.current) {
             outputRef.current.scrollTop = outputRef.current.scrollHeight;
         }
-    }, [outputs, activeExecutableId]);
+    }, [forgeOutputs, activeExecutableId]);
 
     const handleRun = async (folderPath) => {
         console.log('[ForgePanel] handleRun for:', folderPath);
-        setStatuses(prev => ({ ...prev, [folderPath]: 'starting' }));
+        setForgeStatus(folderPath, 'starting');
         setActiveExecutableId(folderPath);
 
         try {
@@ -164,32 +144,20 @@ export default function ForgePanel() {
             if (!response.ok) {
                 const data = await response.json();
                 console.error('[ForgePanel] /api/forge/run error:', data.error);
-                setStatuses(prev => ({ ...prev, [folderPath]: 'error' }));
-                setOutputs(prev => ({
-                    ...prev,
-                    [folderPath]: [
-                        ...(prev[folderPath] || []),
-                        { type: 'error', text: `Launch Error: ${data.error}`, timestamp: Date.now() }
-                    ]
-                }));
+                setForgeStatus(folderPath, 'error');
+                appendForgeOutput(folderPath, { type: 'error', text: `Launch Error: ${data.error}`, timestamp: Date.now() });
             } else {
-                setStatuses(prev => ({ ...prev, [folderPath]: 'running' }));
+                setForgeStatus(folderPath, 'running');
             }
         } catch (error) {
             console.error('Error running folder:', error);
-            setStatuses(prev => ({ ...prev, [folderPath]: 'error' }));
-            setOutputs(prev => ({
-                ...prev,
-                [folderPath]: [
-                    ...(prev[folderPath] || []),
-                    { type: 'error', text: `Error: ${error.message}`, timestamp: Date.now() }
-                ]
-            }));
+            setForgeStatus(folderPath, 'error');
+            appendForgeOutput(folderPath, { type: 'error', text: `Error: ${error.message}`, timestamp: Date.now() });
         }
     };
 
     const handleStop = async (folderPath) => {
-        setStatuses(prev => ({ ...prev, [folderPath]: 'stopping' }));
+        setForgeStatus(folderPath, 'stopping');
         try {
             // In Visor ProcessRunner, the id is typically the path when run from Forge
             await fetch('/api/process/stop', {
@@ -197,13 +165,13 @@ export default function ForgePanel() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: folderPath })
             });
-            setStatuses(prev => ({ ...prev, [folderPath]: 'stopped' }));
+            setForgeStatus(folderPath, 'stopped');
         } catch (error) {
             console.error("Failed to stop process", error);
         }
     };
 
-    const activeOutput = activeExecutableId ? (outputs[activeExecutableId] || []) : [];
+    const activeOutput = activeExecutableId ? (forgeOutputs[activeExecutableId] || []) : [];
     const typeColors = {
         stdout: 'text-green',
         stderr: 'text-red',
@@ -256,7 +224,7 @@ export default function ForgePanel() {
                             <ForgeCard
                                 key={index}
                                 folder={folder}
-                                status={statuses[folder.path] || 'stopped'}
+                                status={forgeStatuses[folder.path] || 'stopped'}
                                 isActive={activeExecutableId === folder.path}
                                 onClick={() => setActiveExecutableId(folder.path)}
                                 onRun={() => handleRun(folder.path)}
@@ -283,7 +251,7 @@ export default function ForgePanel() {
                             </span>
                         </div>
                         <button
-                            onClick={() => setOutputs(prev => ({ ...prev, [activeExecutableId]: [] }))}
+                            onClick={() => useStore.setState(state => ({ forgeOutputs: { ...state.forgeOutputs, [activeExecutableId]: [] } }))}
                             className="text-subtext0 hover:text-red transition-colors"
                             title="Clear output"
                         >
