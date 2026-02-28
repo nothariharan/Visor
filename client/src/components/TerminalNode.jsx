@@ -132,33 +132,46 @@ const TerminalNode = ({ id, data, selected }) => {
             <div className="flex flex-col gap-1 mt-1">
               {errorData?.line && (
                 <button
-                  className="w-full py-1 bg-red-700/80 hover:bg-red-600 text-white text-[10px] font-bold rounded transition-colors"
+                  className="w-full py-1 bg-red/10 border border-red/20 hover:bg-red/20 text-red text-[10px] font-bold rounded transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     window.location.href = `vscode://file/${data.path || id}:${errorData.line}`;
                   }}
                 >
-                  Jump to Error line {errorData.line} →
+                  <span className="opacity-70 mr-1">&gt;</span> jump_to_line {errorData.line}
                 </button>
               )}
-              <button
-                disabled={isFixing}
-                className={`w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'shadow-[0_0_12px_rgba(99,102,241,0.6)] hover:shadow-[0_0_18px_rgba(99,102,241,0.8)]'
-                  }`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (handleAIFix) {
-                    handleAIFix(
-                      data.path || id,
-                      errorData?.originalError || { message: errorMessage, type: 'BrowserError', line: errorData?.line }
-                    );
-                  }
-                }}
-              >
-                ✨ {isFixing ? 'AI is fixing...' : 'AI Auto-Fix'}
-              </button>
+
+              <div className="flex gap-1 w-full">
+                <button
+                  disabled={isFixing}
+                  className={`flex-1 py-1.5 border border-yellow/30 text-yellow text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
+                    ? 'opacity-50 cursor-not-allowed bg-transparent'
+                    : 'bg-yellow/10 hover:bg-yellow/20 hover:border-yellow/50 shadow-[0_0_8px_rgba(249,226,175,0.15)] hover:shadow-[0_0_12px_rgba(249,226,175,0.3)]'
+                    }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (handleAIFix) {
+                      handleAIFix(
+                        data.path || id,
+                        errorData?.originalError || { message: errorMessage, type: 'BrowserError', line: errorData?.line }
+                      );
+                    }
+                  }}
+                >
+                  ✨ {isFixing ? 'fixing...' : 'ai_auto_fix'}
+                </button>
+
+                <button
+                  className="flex-1 py-1.5 bg-blue/10 border border-blue/30 hover:bg-blue/20 hover:border-blue/50 text-blue text-[10px] font-bold rounded transition-colors flex items-center justify-center gap-1.5 shadow-[0_0_8px_rgba(137,180,250,0.15)] hover:shadow-[0_0_12px_rgba(137,180,250,0.3)]"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    useStore.getState().openFile(data.path || id, data.label || 'Unknown');
+                  }}
+                >
+                  <span className="opacity-70">&gt;</span> manual_fix
+                </button>
+              </div>
             </div>
           )}
         </div>
