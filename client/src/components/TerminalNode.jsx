@@ -124,13 +124,13 @@ const TerminalNode = ({ id, data, selected }) => {
 
       {/* Error/Warning Message */}
       {(isError || isWarning) && errorMessage && (
-        <div className={`p-2 border-t-2 flex flex-col gap-1 ${isError ? 'border-red/20 bg-red/5' : 'border-yellow/20 bg-yellow/5'}`}>
+        <div className={`p-2 border-t-2 flex flex-col gap-1 ${isError ? 'border-red/20' : 'border-yellow/20'}`}>
           <div className="text-xs break-words">{errorMessage}</div>
           {isError && (
             <div className="flex flex-col gap-1 mt-1">
               {errorData?.line && (
                 <button
-                  className="w-full py-1 bg-red/10 border border-red/20 hover:bg-red/20 text-red text-[10px] font-bold rounded transition-colors"
+                  className="w-full py-1 border border-red/20 hover:bg-red/20 text-red text-[10px] font-bold rounded transition-colors"
                   onClick={(e) => {
                     e.stopPropagation();
                     window.location.href = `vscode://file/${data.path || id}:${errorData.line}`;
@@ -144,8 +144,8 @@ const TerminalNode = ({ id, data, selected }) => {
                 <button
                   disabled={isFixing}
                   className={`flex-1 py-1.5 border border-yellow/30 text-yellow text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
-                    ? 'opacity-50 cursor-not-allowed bg-transparent'
-                    : 'bg-yellow/10 hover:bg-yellow/20 hover:border-yellow/50'
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-yellow/20 hover:border-yellow/50'
                     }`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -161,7 +161,7 @@ const TerminalNode = ({ id, data, selected }) => {
                 </button>
 
                 <button
-                  className="flex-1 py-1.5 bg-blue/10 border border-blue/30 hover:bg-blue/20 hover:border-blue/50 text-blue text-[10px] font-bold rounded transition-colors flex items-center justify-center gap-1.5"
+                  className="flex-1 py-1.5 border border-blue/30 hover:bg-blue/20 hover:border-blue/50 text-blue text-[10px] font-bold rounded transition-colors flex items-center justify-center gap-1.5"
                   onClick={(e) => {
                     e.stopPropagation();
                     useStore.getState().openFile(data.path || id, data.label || 'Unknown');
