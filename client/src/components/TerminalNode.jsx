@@ -145,7 +145,7 @@ const TerminalNode = ({ id, data, selected }) => {
                   disabled={isFixing}
                   className={`flex-1 py-1.5 border border-yellow/30 text-yellow text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
                     ? 'opacity-50 cursor-not-allowed bg-transparent'
-                    : 'bg-yellow/10 hover:bg-yellow/20 hover:border-yellow/50 shadow-[0_0_8px_rgba(249,226,175,0.15)] hover:shadow-[0_0_12px_rgba(249,226,175,0.3)]'
+                    : 'bg-yellow/10 hover:bg-yellow/20 hover:border-yellow/50'
                     }`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -161,7 +161,7 @@ const TerminalNode = ({ id, data, selected }) => {
                 </button>
 
                 <button
-                  className="flex-1 py-1.5 bg-blue/10 border border-blue/30 hover:bg-blue/20 hover:border-blue/50 text-blue text-[10px] font-bold rounded transition-colors flex items-center justify-center gap-1.5 shadow-[0_0_8px_rgba(137,180,250,0.15)] hover:shadow-[0_0_12px_rgba(137,180,250,0.3)]"
+                  className="flex-1 py-1.5 bg-blue/10 border border-blue/30 hover:bg-blue/20 hover:border-blue/50 text-blue text-[10px] font-bold rounded transition-colors flex items-center justify-center gap-1.5"
                   onClick={(e) => {
                     e.stopPropagation();
                     useStore.getState().openFile(data.path || id, data.label || 'Unknown');
