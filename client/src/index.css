@@ -109,28 +109,32 @@ body {
     transform: translateX(0);
   }
 
-  15% {
+  1.5% {
     transform: translateX(-5px);
   }
 
-  30% {
+  3% {
     transform: translateX(5px);
   }
 
-  45% {
+  4.5% {
     transform: translateX(-4px);
   }
 
-  60% {
+  6% {
     transform: translateX(4px);
   }
 
-  75% {
+  7.5% {
     transform: translateX(-2px);
   }
 
-  90% {
+  9% {
     transform: translateX(2px);
+  }
+
+  10% {
+    transform: translateX(0);
   }
 
   100% {
@@ -177,7 +181,7 @@ body {
 /* Error: initial shake then persistent glow — NO fade */
 .node-execution-error {
   animation:
-    node-shake 0.5s ease-in-out,
+    node-shake 5s ease-in-out infinite,
     node-error-glow 1.8s ease-in-out 0.5s infinite;
 }
 
