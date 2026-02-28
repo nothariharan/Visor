@@ -102,6 +102,96 @@ body {
   }
 }
 
+/* ─── Node Execution State Animations ──────────────────────────────── */
+
+@keyframes node-shake {
+  0% {
+    transform: translateX(0);
+  }
+
+  15% {
+    transform: translateX(-5px);
+  }
+
+  30% {
+    transform: translateX(5px);
+  }
+
+  45% {
+    transform: translateX(-4px);
+  }
+
+  60% {
+    transform: translateX(4px);
+  }
+
+  75% {
+    transform: translateX(-2px);
+  }
+
+  90% {
+    transform: translateX(2px);
+  }
+
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes node-error-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 12px 2px rgba(239, 68, 68, 0.55);
+  }
+
+  50% {
+    box-shadow: 0 0 22px 6px rgba(239, 68, 68, 0.85);
+  }
+}
+
+@keyframes node-executing-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px 2px rgba(16, 185, 129, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 20px 5px rgba(16, 185, 129, 0.7);
+  }
+}
+
+@keyframes node-entry-breathe {
+
+  0%,
+  100% {
+    box-shadow: 0 0 10px 2px rgba(96, 165, 250, 0.4);
+  }
+
+  50% {
+    box-shadow: 0 0 18px 5px rgba(96, 165, 250, 0.65);
+  }
+}
+
+/* Error: initial shake then persistent glow — NO fade */
+.node-execution-error {
+  animation:
+    node-shake 0.5s ease-in-out,
+    node-error-glow 1.8s ease-in-out 0.5s infinite;
+}
+
+/* Executing: green breathe */
+.node-execution-executing {
+  animation: node-executing-glow 1.4s ease-in-out infinite;
+}
+
+/* Entry: blue breathe */
+.node-execution-entry {
+  animation: node-entry-breathe 2s ease-in-out infinite;
+}
+
+
 /* Tag styles (like the reference image) */
 .tag {
   display: inline-block;
@@ -237,6 +327,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -248,6 +339,7 @@ body {
 
 /* Pulse animation for highlighting */
 @keyframes pulse {
+
   0%,
   100% {
     opacity: 1;
@@ -264,31 +356,71 @@ body {
 
 /* === Execution Flow States === */
 @keyframes node-entry-glow {
-  0% { box-shadow: 0 0 5px #89b4fa; border-color: #89b4fa; }
-  50% { box-shadow: 0 0 20px #89b4fa, inset 0 0 10px rgba(137, 180, 250, 0.5); border-color: #b4befe; }
-  100% { box-shadow: 0 0 5px #89b4fa; border-color: #89b4fa; }
+  0% {
+    box-shadow: 0 0 5px #89b4fa;
+    border-color: #89b4fa;
+  }
+
+  50% {
+    box-shadow: 0 0 20px #89b4fa, inset 0 0 10px rgba(137, 180, 250, 0.5);
+    border-color: #b4befe;
+  }
+
+  100% {
+    box-shadow: 0 0 5px #89b4fa;
+    border-color: #89b4fa;
+  }
 }
 
 @keyframes node-error-shake {
-  0%, 100% { transform: translateX(0); box-shadow: 0 0 10px #f38ba8; border-color: #f38ba8; }
-  25% { transform: translateX(-4px); box-shadow: 0 0 25px rgba(243, 139, 168, 0.6); border-color: #f38ba8; }
-  75% { transform: translateX(4px); box-shadow: 0 0 25px rgba(243, 139, 168, 0.6); border-color: #f38ba8; }
+
+  0%,
+  100% {
+    transform: translateX(0);
+    box-shadow: 0 0 10px #f38ba8;
+    border-color: #f38ba8;
+  }
+
+  25% {
+    transform: translateX(-4px);
+    box-shadow: 0 0 25px rgba(243, 139, 168, 0.6);
+    border-color: #f38ba8;
+  }
+
+  75% {
+    transform: translateX(4px);
+    box-shadow: 0 0 25px rgba(243, 139, 168, 0.6);
+    border-color: #f38ba8;
+  }
 }
 
 @keyframes node-executing-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.4); border-color: #a6e3a1; }
-  70% { box-shadow: 0 0 0 10px rgba(166, 227, 161, 0); border-color: #a6e3a1; }
-  100% { box-shadow: 0 0 0 0 rgba(166, 227, 161, 0); border-color: #a6e3a1; }
+  0% {
+    box-shadow: 0 0 0 0 rgba(166, 227, 161, 0.4);
+    border-color: #a6e3a1;
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(166, 227, 161, 0);
+    border-color: #a6e3a1;
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(166, 227, 161, 0);
+    border-color: #a6e3a1;
+  }
 }
 
 .node-execution-entry {
   animation: node-entry-glow 2s ease-in-out infinite;
   z-index: 100;
 }
+
 .node-execution-error {
   animation: node-error-shake 0.5s ease-in-out infinite;
   z-index: 100;
 }
+
 .node-execution-executing {
   animation: node-executing-pulse 1.5s infinite;
   z-index: 90;

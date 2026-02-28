@@ -15,20 +15,21 @@ const CustomNode = ({ id, data, isConnectable }) => {
     const isFocused = focusedNode === id;
     const [executionState, setExecutionState] = useState(null);
 
-    const { activeErrors, executionStates, isFixing } = useStore();
+    const { activeErrors, executionStates, isFixing, handleAIFix } = useStore();
 
     // Derive execution state from global store
     useEffect(() => {
         const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
         const normalizedId = normalize(id);
 
-        // Priority 1: Primary Errors
+        // Priority 1: Primary Errors (from activeErrors map)
         const error = activeErrors[normalizedId];
         if (error) {
             setExecutionState({
                 type: 'error',
                 message: error.message,
                 line: error.line,
+                originalError: error, // keep full error for AI fix
                 primary: true
             });
             return;
@@ -182,30 +183,37 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 </div>
             )}
 
-            {/* Error Actions */}
+            {/* Error Actions — always show when executionState is error */}
             {executionState?.type === 'error' && (
                 <div className="flex flex-col gap-1 mt-2">
-                    <button
-                        className="w-full py-1 bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold rounded transition-colors"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            window.location.href = `vscode://file/${data.path || id}:${executionState.line}`;
-                        }}
-                    >
-                        Jump to Error →
-                    </button>
+                    {executionState.line && (
+                        <button
+                            className="w-full py-1 bg-red-700/80 hover:bg-red-600 text-white text-[10px] font-bold rounded transition-colors"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                window.location.href = `vscode://file/${data.path || id}:${executionState.line}`;
+                            }}
+                        >
+                            Jump to Error line {executionState.line} →
+                        </button>
+                    )}
                     <button
                         disabled={isFixing}
-                        className={`w-full py-1 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1 ${isFixing ? 'opacity-50 cursor-not-allowed' : 'shadow-[0_0_10px_rgba(99,102,241,0.5)]'}`}
+                        className={`w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
+                                ? 'opacity-50 cursor-not-allowed'
+                                : 'shadow-[0_0_12px_rgba(99,102,241,0.6)] hover:shadow-[0_0_18px_rgba(99,102,241,0.8)]'
+                            }`}
                         onClick={(e) => {
                             e.stopPropagation();
-                            const { handleAIFix } = useStore.getState();
                             if (handleAIFix) {
-                                handleAIFix(data.path || id, executionState.originalError);
+                                handleAIFix(
+                                    data.path || id,
+                                    executionState.originalError || { message: executionState.message, type: 'BrowserError' }
+                                );
                             }
                         }}
                     >
-                        ✨ {isFixing ? 'Fixing...' : 'AI Auto-Fix'}
+                        ✨ {isFixing ? 'AI is fixing...' : 'AI Auto-Fix'}
                     </button>
                 </div>
             )}
