@@ -447,6 +447,78 @@ app.post('/api/browser-error', (req, res) => {
     res.json({ received: true });
 });
 
+// --- AI Fix Endpoints ---
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+app.post('/api/ai/fix-error', async (req, res) => {
+    try {
+        const { filePath, error } = req.body;
+        if (!filePath) return res.status(400).json({ success: false, error: 'filePath required' });
+
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) return res.status(500).json({ success: false, error: 'GEMINI_API_KEY not set' });
+
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ success: false, error: 'File not found: ' + filePath });
+        }
+
+        const fileContent = await fs.readFile(filePath, 'utf8');
+        const fileName = path.basename(filePath);
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const prompt = `You are an expert JavaScript/React developer fixing a runtime error.
+
+FILE: ${fileName}
+ERROR: ${error.message}
+ERROR TYPE: ${error.type}
+${error.line ? 'LINE: ' + error.line : ''}
+
+CURRENT FILE CONTENT:
+\`\`\`
+${fileContent}
+\`\`\`
+
+Fix the error in this file. Return ONLY the complete fixed file content with no markdown, no explanation, no code fences. Just the raw fixed code.`;
+
+        console.log('[AI Fix] Calling Gemini for:', fileName, error.message);
+        const result = await model.generateContent(prompt);
+        const fixedContent = result.response.text().trim();
+
+        // Strip markdown code fences if model included them anyway
+        const cleaned = fixedContent.replace(/^```[\w]*\n?/, '').replace(/\n?```$/, '');
+        console.log('[AI Fix] Got fix, length:', cleaned.length);
+
+        res.json({ success: true, fix: cleaned, message: 'Fix generated' });
+    } catch (err) {
+        console.error('[AI Fix] Error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.post('/api/ai/apply-fix', async (req, res) => {
+    try {
+        const { filePath, fixedContent } = req.body;
+        if (!filePath || !fixedContent) {
+            return res.status(400).json({ success: false, error: 'filePath and fixedContent required' });
+        }
+        // Backup original
+        const backup = filePath + '.visor-backup';
+        if (fs.existsSync(filePath)) {
+            await fs.copyFile(filePath, backup);
+        }
+        await fs.writeFile(filePath, fixedContent, 'utf8');
+        console.log('[AI Fix] Applied fix to:', filePath);
+        res.json({ success: true, message: 'Fix applied to ' + path.basename(filePath) });
+    } catch (err) {
+        console.error('[AI Fix] Apply error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+
+
 // --- Native HTML Patcher ---
 app.post('/api/project/patch-html', async (req, res) => {
     try {

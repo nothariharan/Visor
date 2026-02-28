@@ -196,6 +196,48 @@ const useStore = create((set, get) => ({
         get().clearExecutionPath();
     },
 
+    // ===== AI Fix =====
+    isFixing: false,
+
+    handleAIFix: async (filePath, error) => {
+        if (get().isFixing) return;
+        set({ isFixing: true });
+        console.log('[AI Fix] Starting fix for:', filePath, error?.message);
+
+        try {
+            const res = await axios.post('/api/ai/fix-error', {
+                filePath,
+                error: {
+                    message: error?.message || 'Unknown error',
+                    type: error?.type || 'RuntimeError',
+                    stack: error?.stack || error,
+                    line: error?.line || null,
+                }
+            });
+
+            const { success, fix, message } = res.data;
+            console.log('[AI Fix] Response:', { success, message });
+
+            if (success && fix) {
+                console.log('[AI Fix] Applying fix...');
+                // Apply fix via a separate API endpoint
+                const applyRes = await axios.post('/api/ai/apply-fix', { filePath, fixedContent: fix });
+                if (applyRes.data.success) {
+                    console.log('[AI Fix] Fix applied! Clearing errors.');
+                    get().clearErrors();
+                } else {
+                    console.error('[AI Fix] Apply failed:', applyRes.data.error);
+                }
+            } else {
+                console.warn('[AI Fix] No fix generated:', message);
+            }
+        } catch (err) {
+            console.error('[AI Fix] Request failed:', err.message);
+        } finally {
+            set({ isFixing: false });
+        }
+    },
+
     setExecutionState: (nodeId, stateObj) => {
         const normalize = (p) => p ? p.replace(/\\/g, '/').toLowerCase() : '';
         const normId = normalize(nodeId);
