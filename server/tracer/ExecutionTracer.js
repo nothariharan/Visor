@@ -163,8 +163,8 @@ class ExecutionTracer extends EventEmitter {
         const resolved = this.parseError(fullOutput, cwd || this.getCwd(processId));
 
         if (!resolved.file) {
-            // Vite-specific block error
-            if (fullOutput.includes('[vite]') && fullOutput.includes('Error:')) {
+            // Vite-specific block error or Vite plugin error
+            if ((fullOutput.includes('[vite]') && fullOutput.includes('Error:')) || fullOutput.includes('plugin:vite:')) {
                 this.handleViteError(processId, fullOutput, cwd);
                 return;
             }
@@ -262,8 +262,10 @@ class ExecutionTracer extends EventEmitter {
     handleViteError(processId, text, cwd) {
         const workDir = cwd || this.getCwd(processId);
         // Vite format: "Plugin vite:esbuild:\n  /path:line:col"
-        const fileMatch = text.match(/(?:Plugin\s+[^:]+:\n\s+|x\s+Build failed.*\n\s+)([^\n:]+\.(?:jsx?|tsx?)):(\d+):(\d+)/m) ||
-            text.match(/([^\s]+\.(?:jsx?|tsx?)):(\d+):(\d+)/);
+        // Or "File: /path/to/file.jsx:5:26"
+        // Or Standalone "/path/to/file.jsx:5:26" at start of line
+        const fileMatch = text.match(/(?:Plugin\s+[^:]+:\n\s+|x\s+Build failed.*\n\s+|File:\s+|^)([^\/\n:]*\/[^\n:]+\.(?:jsx?|tsx?|vue|svelte)):(\d+):(\d+)/m) ||
+            text.match(/([^\s]+\.(?:jsx?|tsx?|vue|svelte)):(\d+):(\d+)/);
 
         let files = [];
         if (fileMatch) {
@@ -274,8 +276,8 @@ class ExecutionTracer extends EventEmitter {
             }
         }
 
-        const messageMatch = text.match(/(?:Internal server error:|Plugin.*?error:|Error:)\s+(.+)/i);
-        const message = messageMatch ? messageMatch[1] : 'Vite Build Error';
+        const messageMatch = text.match(/(?:Internal server error:|Plugin.*?error:|Error:|\[plugin:[^\]]+\])\s+(.+)/i);
+        const message = messageMatch ? messageMatch[1] : 'Vite Build/Plugin Error';
 
         this.emit('execution:error', {
             processId,

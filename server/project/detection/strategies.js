@@ -38,18 +38,31 @@ class DetectionStrategy {
     }
 
     /**
-     * Get list of directories
+     * Get list of directories (Recursive up to depth 3)
      */
-    async getDirectories() {
+    async getDirectories(startPath = this.projectRoot, currentDepth = 0, maxDepth = 3) {
+        if (currentDepth > maxDepth) return [];
+        let resultDirs = [];
+
         try {
-            const entries = await fs.readdir(this.projectRoot, { withFileTypes: true });
-            return entries
-                .filter(entry => entry.isDirectory())
-                .filter(entry => !entry.name.startsWith('.'))
-                .filter(entry => entry.name !== 'node_modules')
-                .map(entry => entry.name);
+            const entries = await fs.readdir(startPath, { withFileTypes: true });
+
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+
+                const fullPath = path.join(startPath, entry.name);
+                const relPath = path.relative(this.projectRoot, fullPath);
+
+                resultDirs.push(relPath);
+
+                // Recurse deeper
+                const subDirs = await this.getDirectories(fullPath, currentDepth + 1, maxDepth);
+                resultDirs.push(...subDirs);
+            }
+            return resultDirs;
         } catch {
-            return [];
+            return resultDirs;
         }
     }
 }
@@ -362,13 +375,16 @@ class SubdirectoryStrategy extends DetectionStrategy {
 
         for (const dir of directories) {
             // Check if directory matches common patterns
-            const category = this.categorizeDirectory(dir);
+            let category = this.categorizeDirectory(dir);
 
-            if (category) {
-                const runtime = await this.detectDirectoryRuntime(dir, category);
-                if (runtime) {
-                    runtimes.push(runtime);
-                }
+            // If it doesn't match a strict pattern, still scan it as a generic workspace
+            if (!category) {
+                category = 'workspace';
+            }
+
+            const runtime = await this.detectDirectoryRuntime(dir, category);
+            if (runtime) {
+                runtimes.push(runtime);
             }
         }
 
@@ -378,7 +394,8 @@ class SubdirectoryStrategy extends DetectionStrategy {
     /**
      * Categorize directory by name
      */
-    categorizeDirectory(dirName) {
+    categorizeDirectory(dirPath) {
+        const dirName = path.basename(dirPath);
         for (const [category, pattern] of Object.entries(PATTERNS.directories)) {
             if (pattern.test(dirName)) {
                 return category;
@@ -404,8 +421,8 @@ class SubdirectoryStrategy extends DetectionStrategy {
             for (const file of candidates) {
                 if (await this.fileExists(path.join(dirName, file))) {
                     return {
-                        id: `subdir-${dirName}`,
-                        name: dirName.charAt(0).toUpperCase() + dirName.slice(1),
+                        id: `subdir-${dirName.replace(/[\/\\]/g, '-')}`,
+                        name: path.basename(dirName).charAt(0).toUpperCase() + path.basename(dirName).slice(1),
                         command: `node ${file}`,
                         workingDir: path.join(this.projectRoot, dirName),
                         type: 'subdirectory',
@@ -467,8 +484,8 @@ class SubdirectoryStrategy extends DetectionStrategy {
         const framework = this.detectFramework(pkg);
 
         return {
-            id: `subdir-${dirName}`,
-            name: dirName.charAt(0).toUpperCase() + dirName.slice(1),
+            id: `subdir-${dirName.replace(/[\/\\]/g, '-')}`,
+            name: path.basename(dirName).charAt(0).toUpperCase() + path.basename(dirName).slice(1),
             command: command,
             workingDir: path.join(this.projectRoot, dirName),
             type: 'subdirectory',
@@ -489,8 +506,8 @@ class SubdirectoryStrategy extends DetectionStrategy {
         // Check for Django
         if (await this.fileExists(path.join(dirName, 'manage.py'))) {
             return {
-                id: `subdir-${dirName}`,
-                name: dirName.charAt(0).toUpperCase() + dirName.slice(1),
+                id: `subdir-${dirName.replace(/[\/\\]/g, '-')}`,
+                name: path.basename(dirName).charAt(0).toUpperCase() + path.basename(dirName).slice(1),
                 command: 'python manage.py runserver',
                 workingDir: dirPath,
                 type: 'subdirectory',
@@ -505,8 +522,8 @@ class SubdirectoryStrategy extends DetectionStrategy {
         // Check for Flask (look for app.py)
         if (await this.fileExists(path.join(dirName, 'app.py'))) {
             return {
-                id: `subdir-${dirName}`,
-                name: dirName.charAt(0).toUpperCase() + dirName.slice(1),
+                id: `subdir-${dirName.replace(/[\/\\]/g, '-')}`,
+                name: path.basename(dirName).charAt(0).toUpperCase() + path.basename(dirName).slice(1),
                 command: 'flask run',
                 workingDir: dirPath,
                 type: 'subdirectory',
