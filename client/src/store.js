@@ -215,24 +215,19 @@ const useStore = create((set, get) => ({
                 }
             });
 
-            const { success, fix, message } = res.data;
-            console.log('[AI Fix] Response:', { success, message });
+            const { success, message, error: apiError, diff } = res.data;
+            console.log('[AI Fix] Response:', { success, message, diff });
 
-            if (success && fix) {
-                console.log('[AI Fix] Applying fix...');
-                // Apply fix via a separate API endpoint
-                const applyRes = await axios.post('/api/ai/apply-fix', { filePath, fixedContent: fix });
-                if (applyRes.data.success) {
-                    console.log('[AI Fix] Fix applied! Clearing errors.');
-                    get().clearErrors();
-                } else {
-                    console.error('[AI Fix] Apply failed:', applyRes.data.error);
-                }
+            if (success) {
+                console.log('[AI Fix] Fix generated and applied successfully! Clearing errors.');
+                get().clearErrors();
             } else {
-                console.warn('[AI Fix] No fix generated:', message);
+                console.warn('[AI Fix] Fix failed:', apiError || message);
+                alert('AI Fix Failed: ' + (apiError || message));
             }
         } catch (err) {
             console.error('[AI Fix] Request failed:', err.response?.data?.error || err.message);
+            alert('AI Fix Request Failed: ' + (err.response?.data?.error || err.message));
         } finally {
             set({ isFixing: false });
         }
