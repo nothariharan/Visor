@@ -92,7 +92,7 @@ const ForgeCard = ({ folder, status, isActive, onClick, onRun, onStop, url }) =>
                             ? 'border-green/30 bg-green/5 text-green cursor-default'
                             : patchState === 'error'
                                 ? 'border-red/30 bg-red/10 text-red hover:bg-red/20'
-                                : 'border-yellow/30 bg-yellow/5 text-yellow hover:bg-yellow/10 animate-pulse'
+                                : 'border-yellow/30 bg-yellow/5 text-yellow hover:bg-yellow/10'
                         }`}
                     title={patchState === 'patched' ? 'Visor error tracking is active' : 'Click to enable Visor error tracking in your app'}
                 >

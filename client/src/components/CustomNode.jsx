@@ -83,21 +83,17 @@ const CustomNode = ({ id, data, isConnectable }) => {
                 break;
             case 'error-path':
                 borderColor = '!border-red-400';
-                glow = '!shadow-[0_0_15px_rgba(248,113,113,0.4)]';
                 break;
             case 'warning':
                 borderColor = '!border-amber-500';
-                glow = '!shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-pulse';
                 break;
             case 'executing':
             case 'component':
                 borderColor = '!border-emerald-500';
-                glow = 'node-execution-executing';
                 break;
             case 'entry':
             case 'start':
                 borderColor = '!border-blue-400';
-                glow = 'node-execution-entry';
                 break;
         }
     }
@@ -115,7 +111,7 @@ const CustomNode = ({ id, data, isConnectable }) => {
 
             {/* Fixed Status Badge (TUI Aesthetic) */}
             {isFixed && !executionState && (
-                <div className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-emerald-950 border-2 border-emerald-400 flex items-center justify-center text-[10px] z-20 shadow-[0_0_10px_rgba(52,211,153,0.5)] animate-bounce-subtle">
+                <div className="absolute -top-3 -right-3 w-6 h-6 rounded-full bg-emerald-950 border-2 border-emerald-400 flex items-center justify-center text-[10px] z-20">
                     <Sparkles size={12} className="text-emerald-400" />
                 </div>
             )}
@@ -214,10 +210,7 @@ const CustomNode = ({ id, data, isConnectable }) => {
                     )}
                     <button
                         disabled={isFixing}
-                        className={`w-full py-1.5 bg-gradient-to-r from-indigo-600 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing
-                            ? 'opacity-50 cursor-not-allowed'
-                            : 'shadow-[0_0_12px_rgba(99,102,241,0.6)] hover:shadow-[0_0_18px_rgba(99,102,241,0.8)]'
-                            }`}
+                        className={`w-full py-1.5 border border-indigo-500/50 hover:bg-indigo-500/10 text-white text-[10px] font-bold rounded transition-all flex items-center justify-center gap-1.5 ${isFixing ? 'opacity-50 cursor-not-allowed' : ''}`}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (handleAIFix) {

@@ -102,33 +102,19 @@ body {
   }
 }
 
-/* ─── Node Execution State Animations ──────────────────────────────── */
-
-@keyframes node-error-pulse {
-
-  0%,
-  100% {
-    border-color: rgba(239, 68, 68, 1) !important;
-  }
-
-  50% {
-    border-color: rgba(239, 68, 68, 0.2) !important;
-  }
-}
-
-/* Error: pulses the border color without glowing or shaking */
+/* Error: simple border color shift */
 .node-execution-error {
-  animation: node-error-pulse 2s ease-in-out infinite;
+  border-color: #f38ba8 !important;
 }
 
-/* Executing: green breathe */
+/* Executing: solid green border */
 .node-execution-executing {
-  animation: node-executing-glow 1.4s ease-in-out infinite;
+  border-color: #a6e3a1 !important;
 }
 
-/* Entry: blue breathe */
+/* Entry: solid blue border */
 .node-execution-entry {
-  animation: node-entry-breathe 2s ease-in-out infinite;
+  border-color: #89b4fa !important;
 }
 
 
