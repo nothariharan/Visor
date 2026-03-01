@@ -27,6 +27,7 @@ const useStore = create((set, get) => ({
     lastSaveAttemptAt: null,
     isSearchModalOpen: false,
     fixedFiles: new Set(), // Track files fixed by AI in this session
+    projectRoot: null, // Actual project root path from server
 
     // --- Forge Terminal State (Persistent) ---
     forgeOutputs: {},
@@ -589,6 +590,7 @@ const useStore = create((set, get) => ({
                     nodes: mergedNodes,
                     edges: edgesWithStyle,
                     adjacency: res.data.adjacency || {},
+                    projectRoot: res.data.root || null,
                     loading: false,
                     focusedNode: isBackground ? get().focusedNode : null
                 });

@@ -4,10 +4,10 @@ import useStore from '../store';
 /**
  * Floating "Return to Present" button shown only when in detached HEAD (time travel) mode.
  */
-export default function ReturnButton() {
+export default function ReturnButton({ currentMode }) {
     const { isDetached, timeTravelLoading, returnToPresent, currentCommit } = useStore();
 
-    if (!isDetached) return null;
+    if (!isDetached || currentMode !== 'chronicle') return null;
 
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">

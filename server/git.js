@@ -348,6 +348,17 @@ async function returnToPresent(rootDir) {
     const git = simpleGit(rootDir);
     try {
         const originalBranch = await getOriginalBranch(rootDir);
+
+        // Check if branch exists before checkout
+        const branches = await git.branch();
+        if (!branches.all.includes(originalBranch)) {
+            return {
+                success: false,
+                error: `Original branch '${originalBranch}' not found`,
+                recovery: `Try running 'git checkout main' manually or check your active branches.`
+            };
+        }
+
         await git.checkout(originalBranch);
 
         // Look for VISOR auto-stashes
@@ -357,7 +368,13 @@ async function returnToPresent(rootDir) {
             try {
                 await git.stash(['pop', `stash@{${visorStash.index}}`]);
             } catch (e) {
-                return { success: true, warning: 'Could not restore stashed changes (conflicts)', stashPreserved: true, branch: originalBranch };
+                return {
+                    success: true,
+                    warning: 'Could not restore stashed changes (conflicts)',
+                    stashPreserved: true,
+                    branch: originalBranch,
+                    recovery: 'Your changes are safe in a git stash. Run "git stash list" and "git stash pop" to restore them.'
+                };
             }
         }
 
@@ -370,7 +387,7 @@ async function returnToPresent(rootDir) {
             success: false,
             error: 'Failed to return to present',
             details: error.message,
-            recovery: 'Run: git checkout main && git stash pop'
+            recovery: 'Check for uncommitted changes or conflicts. Run: git checkout main && git stash pop'
         };
     }
 }

@@ -139,7 +139,7 @@ const FileTree = () => {
                     if (matched) {
                         // If this node matches, add its parents to the expansion set
                         let parentPath = node.path.substring(0, node.path.lastIndexOf('/'));
-                        while(parentPath) {
+                        while (parentPath) {
                             pathsToExpand.add(parentPath);
                             parentPath = parentPath.substring(0, parentPath.lastIndexOf('/'));
                         }
@@ -151,7 +151,7 @@ const FileTree = () => {
         }
 
         const result = filter(treeData);
-        if(pathsToExpand.size > 0) {
+        if (pathsToExpand.size > 0) {
             // Use a timeout to avoid a Zustand state update loop during render
             setTimeout(() => expandPaths(Array.from(pathsToExpand)), 0);
         }
@@ -177,9 +177,31 @@ const FileTree = () => {
         <div className="flex-1 flex flex-col min-h-0 bg-base font-mono">
             <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-surface1 scrollbar-track-transparent">
                 {finalTreeData.length === 0 ? (
-                    <div className="text-center text-subtext0 text-xs mt-10 p-4 border border-dashed border-surface1 rounded">
-                        <p>{searchQuery ? 'No results found.' : 'No files in view.'}</p>
-                        {!searchQuery && <p className="mt-2 text-[10px] opacity-70">Adjust view mode or expand folders in the graph.</p>}
+                    <div className="mt-8 mx-2 border border-surface1 bg-mantle p-4 font-mono shadow-hard">
+                        <div className="flex items-center gap-2 mb-3 border-b border-surface1 pb-2">
+                            <span className="text-peach animate-pulse">!</span>
+                            <span className="text-subtext0 text-[10px] uppercase font-bold tracking-widest">System Message</span>
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-text text-sm">
+                                {searchQuery ? 'QUERY_RESULT: 0_ENTRIES' : 'VIEW_STATE: NO_FILES_IN_SCOPE'}
+                            </p>
+                            <p className="text-subtext0 text-[10px] leading-relaxed">
+                                {searchQuery
+                                    ? `Search for "${searchQuery}" returned no matches in the current graph context.`
+                                    : 'The current view filters or collapsed states have excluded all nodes from the interface.'}
+                            </p>
+                            {!searchQuery && (
+                                <div className="mt-4 pt-2 border-t border-surface1/30">
+                                    <p className="text-[9px] text-blue uppercase font-bold mb-1">Suggestions:</p>
+                                    <ul className="text-[9px] text-subtext1 space-y-1 list-none">
+                                        <li>- Expand folder nodes in the Graph Canvas</li>
+                                        <li>- Switch to "Skeleton" or "Topography" mode</li>
+                                        <li>- Check filters in visor.config.js</li>
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     finalTreeData.map(node => (

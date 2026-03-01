@@ -160,6 +160,11 @@ export default function ChroniclePanel() {
             setPreviewData(null);
             fetchHistory();
             initChronicleHead();
+        } else {
+            const errorMsg = result?.error || 'Unknown error';
+            const details = result?.details ? `\n\nDetails: ${result.details}` : '';
+            const recovery = result?.recovery ? `\n\nRecovery: ${result.recovery}` : '';
+            alert(`Failed to return to present: ${errorMsg}${details}${recovery}`);
         }
     }, [returnToPresent, fetchHistory, initChronicleHead]);
 

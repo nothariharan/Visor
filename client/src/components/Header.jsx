@@ -3,7 +3,10 @@ import { Network, Share2, Zap, ArrowRight, Save, RotateCcw, Clock } from 'lucide
 import useStore from '../store';
 
 export default function Header({ currentMode, onModeChange }) {
-    const { selectedPath, saveLayout, lastSaveTime, isSavingLayout, resetLayout } = useStore();
+    const { selectedPath, saveLayout, lastSaveTime, isSavingLayout, resetLayout, projectRoot } = useStore();
+
+    // Fix: extract project name from projectRoot
+    const projectName = projectRoot ? projectRoot.replace(/\\/g, '/').split('/').pop() : '...';
 
     const modes = [
         { id: 'topography', label: 'Topography', icon: <Network size={14} />, desc: 'Raw file tree' },
@@ -49,6 +52,8 @@ export default function Header({ currentMode, onModeChange }) {
                 <ArrowRight size={16} className="text-green shrink-0" />
                 <div className="flex items-center gap-1 overflow-hidden">
                     <span className="text-blue font-bold shrink-0">~/visor</span>
+                    <span className="text-subtext0 shrink-0">/</span>
+                    <span className="text-blue font-bold shrink-0">{projectName}</span>
                     {formatted && (
                         <>
                             <span className="text-subtext0 shrink-0">/</span>

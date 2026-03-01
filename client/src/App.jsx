@@ -118,7 +118,7 @@ function App() {
       {/* Global Components */}
       <CodeEditor />
       <ErrorToast />
-      <ReturnButton />
+      <ReturnButton currentMode={currentMode} />
       <SearchModal isOpen={isSearchModalOpen} onClose={() => setIsSearchModalOpen(false)} />
 
       {/* Header */}
